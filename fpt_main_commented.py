@@ -23,7 +23,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 #from numba import njit
-from scipy.signal import welch, detrend # For PSD calculation and detrending
+from scipy.signal import welch, detrend, savgol_filter # For PSD calculation and detrending
+from scipy.optimize import curve_fit
 import matplotlib.patches as patches # Import patches for Rectangle type checking
 import os # Import os module for path manipulation
 
@@ -171,7 +172,8 @@ class DataAnalyzerApp:
         self.SAMPLING_FREQ_HZ = 10000.0   # Hz
         self.NPERSEG = 4096               # Welch segment length
         self.HIST_BINS = 100              # Histogram bins
-        self.BIN_RANGE = (-350, 350)      # Histogram absciss limits in nanometers
+        #self.BIN_RANGE = (-350, 350)      # Histogram absciss limits in nanometers
+        self.BIN_RANGE = (-100, 100)      # Histogram absciss limits in nanometers
         self.K_BOLTZMANN = 4.1            # Boltzmann constant in pN·nm
         self.CF= 1.6;                     # QPD calibration factor correction
         self.cf_var.set(self.CF)
@@ -423,6 +425,12 @@ class DataAnalyzerApp:
         # Then apply detrending
         if self.detrend_var.get():
             try:
+                #we try the savitzky golay filter or detrending
+                #dt = np.mean(np.diff(self.data[self.time_column].values))
+                #window_time_length = 0.1 # seconds
+                #window_length = int(window_time_length/dt) # window length must be odd and less than data length
+                #data_series = savgol_filter(data_series, window_length=window_length, polyorder=3)
+                
                 data_series = detrend(data_series, type='constant')
             except Exception as e:
                 messagebox.showwarning("Detrending Warning", f"Could not detrend signal '{signal_col}': {e}. Detrending skipped.")
@@ -758,6 +766,10 @@ class DataAnalyzerApp:
 
         filename = self.file_path.get()
 
+        # Define gaussian function for fitting
+        def gaussian(x, mu, sigma, A, B):
+            return A * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + B
+
         
         for i, signal_col in enumerate(self.selected_signals):
             # Use _get_processed_data for computation (full data)
@@ -768,6 +780,8 @@ class DataAnalyzerApp:
                 hist, bin_edges = np.histogram(signal_data, bins=self.HIST_BINS, range=self.BIN_RANGE, density=True)
                 bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
 
+                
+
                 # normal histogram plot
                 hist_axes[i].plot(bin_centers, hist, label='PDF')
                 hist_axes[i].set_xlabel("Displacement (nm)")
@@ -775,6 +789,22 @@ class DataAnalyzerApp:
                 hist_axes[i].set_title(f"PDF of {signal_col}: {filename}")
                 hist_axes[i].grid(True)
                 hist_axes[i].set_xlim(self.BIN_RANGE)
+
+                #perform fitting with gaussian
+                try:
+                    popt, pcov = curve_fit(gaussian, bin_centers, hist, p0=[0, 1, 1, 0])
+                    fitted_hist = gaussian(bin_centers, *popt)
+                    hist_axes[i].plot(bin_centers, fitted_hist, 'r--', label='Gaussian Fit')
+                    hist_axes[i].legend()
+
+                    A = popt[2]
+                    B = popt[3]
+                    mu = popt[0]
+                    sigma = popt[1]
+                    hist_axes[i].annotate(f"Fit: {A:.2f} exp(-(x - {mu:.2f})**2/{sigma:.2f}/2) + {B:.2f}",
+                        xy=(0.05, 0.05), xycoords='axes fraction')
+                except Exception as e:
+                    print(f"Gaussian fit failed for {signal_col}: {e}")
 
                 if 'free' in filename.lower():
                     variance = np.var(signal_data)
