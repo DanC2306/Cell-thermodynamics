@@ -1,6 +1,6 @@
 """Data Analyzer GUI for time-series signals acquired from CSV files.
 
-Features: old this is Catalina's FPT analysis code with a GUI and more functionality
+Features: old this is Catalina's FPT analysis code with a GUI and more functionality! Nice!
 - Load time-series data (time + multiple channels) from CSV (tab- or comma-separated).
 - Interactively select channels and plot them vs. time (with optional normalization,
   detrending, and calibration).
