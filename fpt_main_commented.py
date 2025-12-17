@@ -13,7 +13,7 @@ Features: old this is Catalina's FPT analysis code with a GUI and more functiona
   - The selected time window of the chosen signals to CSV.
   - The most recently computed PSD to CSV.
 - Provide calibration handling for specific analog input channels (piezo, QPD, laser),
-  with a configurable conversion factor (CF).
+  with a configurable conversion factor (CF)
 """
 
 import tkinter as tk
@@ -141,7 +141,7 @@ class DataAnalyzerApp:
         """
         self.root = root
         self.root.title("Data Analyzer")
-        self.root.geometry("1200x800")
+        self.root.geometry("1400x1024")
 
         self.data = None
         self.time_column = None
@@ -241,12 +241,24 @@ class DataAnalyzerApp:
         plotting_sub_frame = ttk.LabelFrame(plot_controls_container_frame, text="Plotting", padding="10")
         plotting_sub_frame.pack(fill=tk.X, pady=2)
 
-        ttk.Button(plotting_sub_frame, text="Plot Selected Signals", command=self.plot_selected_signals).pack(pady=2)
-        ttk.Button(plotting_sub_frame, text="Compute PSD", command=self.compute_psd).pack(pady=2)
-        ttk.Button(plotting_sub_frame, text="Save Selected Data", command=self.save_selected_data).pack(pady=2)
-        ttk.Button(plotting_sub_frame, text="Save PSD Data", command=self.save_psd_data).pack(pady=2)
-        ttk.Button(plotting_sub_frame, text="Histogram PDF", command=self.compute_histogram_and_plots).pack(pady=2)
-        ttk.Button(plotting_sub_frame, text="Plot combined pdf", command=self.plot_combined_pdf).pack(pady=2)
+        # Arrange processing buttons in two columns: left = existing buttons, right = new/extra buttons
+        proc_buttons_frame = ttk.Frame(plotting_sub_frame)
+        proc_buttons_frame.pack(fill=tk.X)
+
+        left_col = ttk.Frame(proc_buttons_frame)
+        left_col.grid(row=0, column=0, sticky='nw')
+        right_col = ttk.Frame(proc_buttons_frame)
+        right_col.grid(row=0, column=1, sticky='ne', padx=10)
+
+        ttk.Button(left_col, text="Plot Selected Signals", command=self.plot_selected_signals).pack(pady=2, anchor='w')
+        ttk.Button(left_col, text="Compute PSD", command=self.compute_psd).pack(pady=2, anchor='w')
+        ttk.Button(left_col, text="Save Selected Data", command=self.save_selected_data).pack(pady=2, anchor='w')
+        ttk.Button(left_col, text="Save PSD Data", command=self.save_psd_data).pack(pady=2, anchor='w')
+        ttk.Button(left_col, text="Histogram PDF", command=self.compute_histogram_and_plots).pack(pady=2, anchor='w')
+        ttk.Button(left_col, text="Plot combined pdf", command=self.plot_combined_pdf).pack(pady=2, anchor='w')
+
+        # Start the second column with the requested button
+        ttk.Button(right_col, text="Variance random window", command=self.variance_random_window).pack(pady=2, anchor='w')
         
 
         # Preprocessing Controls Sub-frame
@@ -400,7 +412,7 @@ class DataAnalyzerApp:
             self.reference_signal_combobox['values'] = []
             self.reference_signal_var.set('')
 
-    def _get_processed_data(self, signal_col, full_data=True):
+    def _get_processed_data(self, signal_col, full_data=True, time_start=None, time_end=None):
         """
         Returns the processed (normalized or original) data for a given signal column.
         If full_data is False, returns decimated data for plotting.
@@ -408,13 +420,20 @@ class DataAnalyzerApp:
         if self.data is None or signal_col not in self.data.columns:
             return np.array([])
 
-        data_series = self.data[signal_col].values
+        
+        time_data = self.data[self.time_column].values
+        if time_start is not None and time_end is not None:
+            time_mask = (time_data >= time_start) & (time_data <= time_end)
+        else:
+            time_mask = np.ones_like(time_data, dtype=bool)
+
+        data_series = self.data[signal_col].values[time_mask]
         
         # Apply normalization first
         if self.normalize_var.get():
             ref_signal_name = self.reference_signal_var.get()
             if ref_signal_name and ref_signal_name in self.data.columns:
-                reference_data = self.data[ref_signal_name].values
+                reference_data = self.data[ref_signal_name].values[time_mask]
                 # Avoid division by zero
                 reference_data[reference_data == 0] = 1e-9 # Small number to prevent division by zero
                 data_series = data_series / reference_data
@@ -429,7 +448,7 @@ class DataAnalyzerApp:
                 #dt = np.mean(np.diff(self.data[self.time_column].values))
                 #window_time_length = 0.1 # seconds
                 #window_length = int(window_time_length/dt) # window length must be odd and less than data length
-                #data_series = savgol_filter(data_series, window_length=window_length, polyorder=3)
+                #data_series = data_series - savgol_filter(data_series, window_length=window_length, polyorder=3)
                 
                 data_series = detrend(data_series, type='constant')
             except Exception as e:
@@ -704,7 +723,7 @@ class DataAnalyzerApp:
 
         for i, signal_col in enumerate(self.selected_signals):
             # Use _get_processed_data for computation (full data)
-            signal_data = self._get_processed_data(signal_col, full_data=True)[(time_data >= start_t) & (time_data <= end_t)]
+            signal_data = self._get_processed_data(signal_col, full_data=True, time_start=start_t, time_end=end_t)
             
             # Compute PSD using Welch's method
             # nperseg: length of each segment. A common choice is 256 or 512.
@@ -773,12 +792,15 @@ class DataAnalyzerApp:
         
         for i, signal_col in enumerate(self.selected_signals):
             # Use _get_processed_data for computation (full data)
-            signal_data = self._get_processed_data(signal_col, full_data=True)[(time_data >= start_t) & (time_data <= end_t)]
+            signal_data = self._get_processed_data(signal_col, full_data=True, time_start=start_t, time_end=end_t)
             
             try:
                 # Histogram
-                hist, bin_edges = np.histogram(signal_data, bins=self.HIST_BINS, range=self.BIN_RANGE, density=True)
+                hist, bin_edges = np.histogram(signal_data, bins=self.HIST_BINS, density=True)#, range=self.BIN_RANGE, density=True)
+                #modifying to get hist centered on 0
                 bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+                idx = np.argmax(hist)
+                bin_centers = bin_centers - bin_centers[idx] #centered on max
 
                 
 
@@ -788,7 +810,7 @@ class DataAnalyzerApp:
                 hist_axes[i].set_ylabel("Probability Density")
                 hist_axes[i].set_title(f"PDF of {signal_col}: {filename}")
                 hist_axes[i].grid(True)
-                hist_axes[i].set_xlim(self.BIN_RANGE)
+                #hist_axes[i].set_xlim(self.BIN_RANGE)
 
                 #perform fitting with gaussian
                 try:
@@ -819,7 +841,7 @@ class DataAnalyzerApp:
 
         hist_fig.tight_layout()
         # FIX: Make PSD window non-modal so user can interact with main GUI
-        plt.show(block=False) # Changed from plt.show() to plt.show(block=False)
+        hist_fig.show() # Changed from plt.show() to plt.show(block=False)
 
 
          # Create a new figure for log log PDF plots
@@ -830,12 +852,17 @@ class DataAnalyzerApp:
         
         for i, signal_col in enumerate(self.selected_signals):
             # Use _get_processed_data for computation (full data)
-            signal_data = self._get_processed_data(signal_col, full_data=True)[(time_data >= start_t) & (time_data <= end_t)]
+            signal_data = self._get_processed_data(signal_col, full_data=True, time_start=start_t, time_end=end_t)
             
             try:
                 # Histogram
-                hist, bin_edges = np.histogram(signal_data, bins=self.HIST_BINS, range=self.BIN_RANGE, density=True)
+                #hist, bin_edges = np.histogram(signal_data, bins=self.HIST_BINS, range=self.BIN_RANGE, density=True)
+                hist, bin_edges = np.histogram(signal_data, bins=self.HIST_BINS,  density=True)
                 bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+                #modifying to get hist centered on 0
+                bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+                idx = np.argmax(hist)
+                bin_centers = bin_centers - bin_centers[idx] #centered on max
 
                 # normal histogram plot
                 hist_axes[i].semilogy(bin_centers, hist + 1e-10, label='PDF')
@@ -843,7 +870,7 @@ class DataAnalyzerApp:
                 hist_axes[i].set_ylabel("Probability Density")
                 hist_axes[i].set_title(f"PDF of {signal_col}: {filename}")
                 hist_axes[i].grid(True)
-                hist_axes[i].set_xlim(self.BIN_RANGE)
+                #hist_axes[i].set_xlim(self.BIN_RANGE)
 
                 if 'free' in filename.lower():
 
@@ -871,7 +898,7 @@ class DataAnalyzerApp:
 
         hist_fig.tight_layout()
         # FIX: Make PSD window non-modal so user can interact with main GUI
-        plt.show(block=False) # Changed from plt.show() to plt.show(block=False)
+        hist_fig.show() # Changed from plt.show() to plt.show(block=False)
 
     
     def plot_combined_pdf(self):
@@ -900,7 +927,7 @@ class DataAnalyzerApp:
         #plt.close()
 
         hist_fig.tight_layout()
-        plt.show(block=False) # Changed from plt.show() to plt.show(block=False)
+        hist_fig.show(block=False) # Changed from plt.show() to plt.show(block=False)
 
     def save_selected_data(self):
         """Save the selected time window of the chosen signals to a CSV file."""
@@ -916,7 +943,7 @@ class DataAnalyzerApp:
 
         for signal_col in self.selected_signals:
             # Use _get_processed_data for saving (full data)
-            processed_signal_data = self._get_processed_data(signal_col, full_data=True)[(time_data >= start_t) & (time_data <= end_t)]
+            processed_signal_data = self._get_processed_data(signal_col, full_data=True, time_start=start_t, time_end=end_t)
             data_to_save_dict[signal_col] = processed_signal_data
 
         data_to_save = pd.DataFrame(data_to_save_dict)
@@ -961,6 +988,42 @@ class DataAnalyzerApp:
                 messagebox.showinfo("Success", f"PSD data saved to {save_path}")
             except Exception as e:
                 messagebox.showerror("Save Error", f"Failed to save PSD data: {e}")
+
+    def variance_random_window(self):
+        """Here we calculate the variance by taking random windows of time from the preprocessed signal and time selection
+        and averaging the variance over those windows.
+        """
+        if self.data is None or not self.selected_signals:
+            messagebox.showwarning("Selection Error", "Please load data and select signals first.")
+            return
+
+        window_duration = 2.0 # seconds
+        n_windows = 20
+
+        results = []
+        time_data = self.data[self.time_column].values
+        total_duration = time_data[-1] - time_data[0]
+        window_size = int(window_duration / np.mean(np.diff(time_data)))
+        start_t, end_t = sorted(self.selected_time_range)
+
+        for signal_col in self.selected_signals:
+            signal_data = self._get_processed_data(signal_col, full_data=True, time_start=start_t, time_end=end_t)
+
+            variances = []
+            for _ in range(n_windows):
+                start_time = np.random.uniform(time_data[0], time_data[-1] - window_duration)
+                start_idx = np.searchsorted(time_data, start_time)
+                end_idx = start_idx + window_size
+                if end_idx <= len(signal_data):
+                    window_data = signal_data[start_idx:end_idx]
+                    variances.append(np.var(window_data))
+
+            avg_variance = np.mean(variances) if variances else None
+            std_variance = np.std(variances) if variances else None
+            results.append((signal_col, avg_variance, std_variance))
+
+        result_str = "\n".join([f"{col}: Variance = {var:.4f}+-{std:.4f}, stiffness = {self.K_BOLTZMANN / var}" for col, var, std in results if var is not None])
+        messagebox.showinfo("Variance Results", result_str)
 
 def main():
     """Entry point for running the DataAnalyzerApp as a standalone GUI program."""
