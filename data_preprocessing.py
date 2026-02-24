@@ -43,7 +43,6 @@ import json
 import os
 # end for persistent settings
 
-from data_fpt_processing import DataAnalyzerFptWindow
 
 # --- Data Processing Functions ---
 def compute_first_passage_times(t:np.ndarray, x:np.ndarray)->np.ndarray:
@@ -389,6 +388,45 @@ class DataAnalyzerApp(tk.Tk):
             self.settings["last_opened_directory"] = os.path.dirname(f_path)
             self.save_settings(self.settings)   
             self.load_data(f_path)
+            
+    @staticmethod
+    def getCsvConfigurationFile(fileName:str, device = "Bio Controller", returnType:type = dict):
+        pf = pd.read_csv(fileName, sep=',', lineterminator="\n", header=1)
+        l = [dict(row) for index, row in pf.iterrows()]
+        if '\r' in list(l[0].keys())[-1]:
+            lastKey_slashR = list(l[0].keys())[-1]
+            lastKey = lastKey_slashR.replace('\r','')
+            for i in range(len(l)):
+                l[i][lastKey] = l[i][lastKey_slashR].replace('\r','')
+                l[i].pop(lastKey_slashR)
+        if returnType == list:
+            if device is not None:
+                return [e for e in l if e["Device"] == device]
+            else:
+                return l		
+        elif returnType == dict:
+            if device is not None:
+                return {e["Parameter internal name"] : e for e in l if e["Device"] == device}
+            else:
+                return {e["Parameter internal name"] : e for e in l}
+        
+    @staticmethod
+    def getCsvTimeseries(f_path:str)->tuple[pd.DataFrame, str|None]:
+        # Try reading with tab delimiter first, then comma
+        try:
+            data = pd.read_csv(f_path, delimiter='\t')
+        except Exception:
+            data = pd.read_csv(f_path, delimiter=',')
+
+        # Identify time and signal columns
+        potential_time_cols = [col for col in data.columns if 'tim' in col.lower()]
+        if potential_time_cols:
+            timeColumn = potential_time_cols[0]
+        else:
+            timeColumn = None
+        return data, timeColumn
+
+
     @cache
     def load_data(self:Self, f_path:str)->None:
         """Load time-series data from the given CSV file.
@@ -400,30 +438,32 @@ class DataAnalyzerApp(tk.Tk):
         try:
             # Explicitly reset time selection markers and patches before loading new data
             self.reset_time_selection() 
-
-            # Try reading with tab delimiter first, then comma
-            try:
-                self.data = pd.read_csv(f_path, delimiter='\t')
-            except Exception:
-                self.data = pd.read_csv(f_path, delimiter=',')
-
-            # Identify time and signal columns
-            potential_time_cols = [col for col in self.data.columns if 'time' in col.lower()]
-            if potential_time_cols:
-                self.time_column = potential_time_cols[0]
-                # Compute sampling frequency as mean(diff(time_values))
+            
+            self.data, self.time_column = self.getCsvTimeseries(f_path)
+            
+            if self.time_column:
                 self.SAMPLING_FREQ_HZ = np.mean(np.diff(self.data[self.time_column].values))
             else:
                 # Fallback to the first column if no clear time column is found
                 self.time_column = self.data.columns[0]
                 print(f"Warning: No clear time column found. Using '{self.time_column}' as time column.")
 
+
             self.signal_columns = [col for col in self.data.columns if col != self.time_column]
 
             # Update signal selection listbox
             self.signal_listbox.delete(0, tk.END)
+            suggestions = {
+                "AI1" : "piezo 1",
+                "AI2" : "SUM",
+                "AI3" : "XDIFF",
+                "AI4" : "YDIFF",
+                "AI5" : "piezo 2",
+                "AI6" : "active control",
+                "AI7" : "laser current",
+                }
             for i, col in enumerate(self.signal_columns):
-                self.signal_listbox.insert(tk.END, col)
+                self.signal_listbox.insert(tk.END, f"{col} ({suggestions[col]})")
                 # Pre-select ONLY the first channel by default
                 if i == 0: # Changed from i < 7 to i == 0
                     self.signal_listbox.selection_set(i)
@@ -462,6 +502,8 @@ class DataAnalyzerApp(tk.Tk):
         Returns the processed (normalized or original) data for a given signal column.
         If full_data is False, returns decimated data for plotting.
         """
+        if "(" in signal_col:
+            signal_col = signal_col[:str.index(signal_col, " (")]
         if self.data is None or signal_col not in self.data.columns:
             return np.array([])
 
@@ -1323,6 +1365,7 @@ class DataAnalyzerApp(tk.Tk):
             messagebox.showwarning("Selection Error", "Please select at least one signal for FPT analysis.")
             return
         
+        from data_fpt_processing import DataAnalyzerFptWindow
         fpt_window = DataAnalyzerFptWindow(self, time_data, signal_data, constants=self.constants)
 
 def main():
