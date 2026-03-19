@@ -12,6 +12,8 @@ import cProfile
 import pstats
 
 import io
+from scipy.optimize import curve_fit
+from scipy import special
 # end for profiling purposes
 
 class DataAnalyzerFptWindow(tk.Toplevel):
@@ -133,7 +135,7 @@ class DataAnalyzerFptWindow(tk.Toplevel):
         configFile = fileName.replace("_bioControllerTimings.csv", "_conf.csv")
         configs = DataAnalyzerApp.getCsvConfigurationFile(configFile)
         setpoint_adimensional = float(configs["binFeedback_x0"]["Parameter value"])
-        setpoint_energy = self.convert_setpoint_from_adimensionalDistane_to_kBT(1, setpoint_adimensional)
+        setpoint_energy = self.convert_setpoint_from_adimensionalDistane_to_kBT(1/self.constants.cf, setpoint_adimensional)
         return fpt, cdf, setpoint_energy
 
     def load_data(self:Self)->None:
@@ -143,7 +145,7 @@ class DataAnalyzerFptWindow(tk.Toplevel):
                 fpt, pdf, setpoint_energy =self.get_FT_CDF_fromFPGA(file_path)
                 self.plot_data(fpt, pdf, title="FPGA Data", xlabel="First Passage Time (s)", ylabel="PDF")
                 reference_value = np.mean(self.signal_data)
-
+                
                 #update the setpoint entry with the value from the FPGA data
                 kBT_setpoint = self.convert_setpoint_from_kBT_to_adimensionalDistane(reference_value, setpoint_energy)
                 self.setpoint_var.set(kBT_setpoint)
@@ -201,11 +203,21 @@ class DataAnalyzerFptWindow(tk.Toplevel):
     def plot_data(self:Self, x_data:np.ndarray, y_data:np.ndarray, title:str="Signal Plot", xlabel:str="Time", ylabel:str="Signal Value")->None:
         sigma, tau, perr, y_fit = self.fit_data_with_erfc(x_data, y_data, self.convert_setpoint_from_kBT_to_adimensionalDistane(y_data, self.setpoint_var.get()))
         self.ax.clear()
-        self.ax.semilogx(x_data, y_data, label=title)
-        self.ax.semilogx(x_data, y_fit, label=f"Fitted erfc (sigma={sigma:.2f}±{perr[0]:.2f}, tau={tau:.2f}±{perr[1]:.2f})", linestyle='--')
+        self.ax.plot(x_data, y_data, label=title)
+        def erfc_model(tau, a, b):
+            return special.erfc(a * np.sqrt(1 / (np.exp(b * tau) - 1)))
+        try:
+            (a, b), _ = curve_fit(erfc_model, x_data, y_data, p0=[1, 1], maxfev=5000)
+            fitted_curve = erfc_model(x_data, a, b)
+            tau_r = 2 / b
+
+            self.ax.plot(x_data, fitted_curve, '--', label='Fitted curve')
+        except Exception as e:
+            print(f"Fitting failed: {e}")
         self.ax.set_title(title)
         self.ax.set_xlabel(xlabel)
         self.ax.set_ylabel(ylabel)
+        self.ax.set_xscale('log')
         self.ax.legend()
         self.canvas.draw()
 

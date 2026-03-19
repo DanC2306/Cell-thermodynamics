@@ -47,96 +47,96 @@ import os
 
 # --- Data Processing Functions ---
 def compute_first_passage_times(t:np.ndarray, x:np.ndarray)->np.ndarray:
-    """Compute a boolean mask indicating first-passage events in a time series.
-    
-    The signal is smoothed with a running average, then detrended. Zero-crossings
-    where the detrended signal goes from <= 0 to > 0 and exceeds a small positive
-    threshold are marked as first-passage events.
-    """
-    # This function seems to be for a specific analysis, not directly PSD.
-    # We will keep it for now but it might not be directly used for PSD.
-    x_mean = np.mean(x)
-    delta_t_mean = t[0] + 0.5 #s
-    N = np.cumsum(t < delta_t_mean)
-    N = N[-1]
-    kernel =  np.ones((N,))/N
-    x_mean = np.convolve(x,kernel)[N-1:]
+	"""Compute a boolean mask indicating first-passage events in a time series.
+	
+	The signal is smoothed with a running average, then detrended. Zero-crossings
+	where the detrended signal goes from <= 0 to > 0 and exceeds a small positive
+	threshold are marked as first-passage events.
+	"""
+	# This function seems to be for a specific analysis, not directly PSD.
+	# We will keep it for now but it might not be directly used for PSD.
+	x_mean = np.mean(x)
+	delta_t_mean = t[0] + 0.5 #s
+	N = np.cumsum(t < delta_t_mean)
+	N = N[-1]
+	kernel =  np.ones((N,))/N
+	x_mean = np.convolve(x,kernel)[N-1:]
 
-    dx = x - x_mean
+	dx = x - x_mean
 
-    a1 = dx[1:] > 0.0
-    a2 = dx[:-1] <= 0.0
-    i_pass_zero =  a1 & a2
-    i_pass_zero = np.insert(i_pass_zero, 0, 0)
+	a1 = dx[1:] > 0.0
+	a2 = dx[:-1] <= 0.0
+	i_pass_zero =  a1 & a2
+	i_pass_zero = np.insert(i_pass_zero, 0, 0)
 
 
-    v_idx = (dx) > 0.0015
-    idx = v_idx &  i_pass_zero
-    #idx = np.insert(idx, 0, 0)
+	v_idx = (dx) > 0.0015
+	idx = v_idx &  i_pass_zero
+	#idx = np.insert(idx, 0, 0)
 
-    return idx
+	return idx
 
 
 
 
 # === Constants  and various greatnesses from fit ===
 class Constants:
-    """Physical constants and parameters for calibration and analysis."""
-    k_B = 1.380649e-23  # J/K
-    T = 298             # K
-    eta = 0.001         # Pa·s (water)
-    R = 1.5e-6          # m (bead radius)
-    gamma = 6 * np.pi * eta * R
+	"""Physical constants and parameters for calibration and analysis."""
+	k_B = 1.380649e-23  # J/K
+	T = 298             # K
+	eta = 0.001         # Pa·s (water)
+	R = 1.5e-6          # m (bead radius)
+	gamma = 6 * np.pi * eta * R
 
-    def __init__(self:Self, fc=50.0, A=1.0):
-        # === Compute stiffness ===
-        self.k_trap = 2 * np.pi * self.gamma * fc  # [N/m]
+	def __init__(self:Self, fc=50.0, A=1.0):
+		# === Compute stiffness ===
+		self.k_trap = 2 * np.pi * self.gamma * fc  # [N/m]
 
-        # === Compute theoretical variance (in m²) ===
-        self.x2_theory = self.k_B * self.T / self.k_trap
+		# === Compute theoretical variance (in m²) ===
+		self.x2_theory = self.k_B * self.T / self.k_trap
 
-        # === Compute measured variance from Lorentzian area (in V²) ===
-        # For S(f) = A / (1 + (f/fc)^2), one-sided variance is: A * fc * (pi/2)
-        self.V2_measured = A * fc * (np.pi / 2.0)
+		# === Compute measured variance from Lorentzian area (in V²) ===
+		# For S(f) = A / (1 + (f/fc)^2), one-sided variance is: A * fc * (pi/2)
+		self.V2_measured = A * fc * (np.pi / 2.0)
 
-        # === Conversion factor: Volts → meters ===
-        self.calib_m_per_V = np.sqrt(self.x2_theory / self.V2_measured)
-        self.calib_nm_per_V = self.calib_m_per_V * 1e9
+		# === Conversion factor: Volts → meters ===
+		self.calib_m_per_V = np.sqrt(self.x2_theory / self.V2_measured)
+		self.calib_nm_per_V = self.calib_m_per_V * 1e9
 
-    def simulate_optical_trap(self:Self,
-        duration_s=10.0,
-        fs=10000.0,          # sampling rate (Hz)
-        meas_noise_std=0.0   # meters RMS (e.g., tracking noise)
-    ):
-        self.fs = fs
-        dt = 1.0 / fs
-        n = int(duration_s * fs)
-        tau = self.gamma / self.k_trap                    # relaxation time (s)
+	def simulate_optical_trap(self:Self,
+		duration_s=10.0,
+		fs=10000.0,          # sampling rate (Hz)
+		meas_noise_std=0.0   # meters RMS (e.g., tracking noise)
+	):
+		self.fs = fs
+		dt = 1.0 / fs
+		n = int(duration_s * fs)
+		tau = self.gamma / self.k_trap                    # relaxation time (s)
 
-        a = np.exp(-dt / tau)
-        var_x = self.k_B * self.T / self.k_trap                 # stationary variance
-        sigma = np.sqrt(var_x * (1.0 - a*a))
+		a = np.exp(-dt / tau)
+		var_x = self.k_B * self.T / self.k_trap                 # stationary variance
+		sigma = np.sqrt(var_x * (1.0 - a*a))
 
-        x = np.zeros(n)
-        eps = np.random.randn(n-1)
-        for i in range(n-1):
-            x[i+1] = a * x[i] + sigma * eps[i]
+		x = np.zeros(n)
+		eps = np.random.randn(n-1)
+		for i in range(n-1):
+			x[i+1] = a * x[i] + sigma * eps[i]
 
-        # add measurement noise (e.g., camera localization noise)
-        if meas_noise_std > 0:
-            x_meas = x + meas_noise_std * np.random.randn(n)
-        else:
-            x_meas = x
+		# add measurement noise (e.g., camera localization noise)
+		if meas_noise_std > 0:
+			x_meas = x + meas_noise_std * np.random.randn(n)
+		else:
+			x_meas = x
 
-        t = np.arange(n) * dt
-        #let's normalize the data to 1
-        x_meas = x_meas / np.sqrt(var_x)
-        return t, x_meas, {"gamma": self.gamma, "tau": tau, "fc": self.k_trap/(2*np.pi*self.gamma), "var_x": var_x}
+		t = np.arange(n) * dt
+		#let's normalize the data to 1
+		x_meas = x_meas / np.sqrt(var_x)
+		return t, x_meas, {"gamma": self.gamma, "tau": tau, "fc": self.k_trap/(2*np.pi*self.gamma), "var_x": var_x}
 
 # --- GUI Application Class ---
 
 class DataAnalyzerApp(tk.Tk):
-    """Main GUI application for loading, visualizing, and analyzing time-series data.
+	"""Main GUI application for loading, visualizing, and analyzing time-series data.
 
     The class builds the Tkinter interface, manages data loading and preprocessing,
     enables interactive time-window selection, runs spectral and histogram-based
@@ -154,304 +154,304 @@ class DataAnalyzerApp(tk.Tk):
         self.geometry("1400x1024")
         self.an_font_size = 20
 
-        self.data = None
-        self.time_column = None
-        self.signal_columns = []
-        self.selected_signals = []
-        self.file_path = tk.StringVar()
-        self.selected_time_range = None # To store (start_time, end_time)
-        self.start_line = None # To store the vertical line for selection start
-        self.end_line = None   # To store the vertical line for selection end
-        self.highlight_patches = [] # To store axvspan patches for easy removal
+		self.data = None
+		self.time_column = None
+		self.signal_columns = []
+		self.selected_signals = []
+		self.file_path = tk.StringVar()
+		self.selected_time_range = None # To store (start_time, end_time)
+		self.start_line = None # To store the vertical line for selection start
+		self.end_line = None   # To store the vertical line for selection end
+		self.highlight_patches = [] # To store axvspan patches for easy removal
 
-        # Variables to store PSD data for saving
-        self.last_computed_freqs = None
-        self.last_computed_psd = None
-        self.last_computed_signal_name = None
+		# Variables to store PSD data for saving
+		self.last_computed_freqs = None
+		self.last_computed_psd = None
+		self.last_computed_signal_name = None
 
-        # Variable to remember the last opened directory
-        self.default_settings = {
-            "last_opened_directory": "."
-        }
-        self.settings_file = "data_preprocessing_settings.json"
-        self.settings = self.load_settings()
-        #self.last_opened_directory = "." 
-        #self.last_opened_directory = r"D:\BioControllerRiccardo\termodinamica_statistica\20250708"
+		# Variable to remember the last opened directory
+		self.default_settings = {
+			"last_opened_directory": "."
+		}
+		self.settings_file = "data_preprocessing_settings.json"
+		self.settings = self.load_settings()
+		#self.last_opened_directory = "." 
+		#self.last_opened_directory = r"D:\BioControllerRiccardo\termodinamica_statistica\20250708"
 
-        # Preprocessing variables
-        self.normalize_var = tk.BooleanVar(value=False)
-        self.detrend_var = tk.BooleanVar(value=False) # New detrend variable
-        self.calibrate_var = tk.BooleanVar(value=False) #New variable to calibrate or not the selected signal
-        self.cf_var = tk.DoubleVar(value=0.0)
-        self.reference_signal_var = tk.StringVar()
+		# Preprocessing variables
+		self.normalize_var = tk.BooleanVar(value=True)
+		self.detrend_var = tk.BooleanVar(value=False) # New detrend variable
+		self.calibrate_var = tk.BooleanVar(value=True) #New variable to calibrate or not the selected signal
+		self.cf_var = tk.DoubleVar(value=0.0)
+		self.reference_signal_var = tk.StringVar()
 
-        self.constants = Constants() # Create an instance of the Constants class to access physical parameters and calibration factors
+		self.constants = Constants() # Create an instance of the Constants class to access physical parameters and calibration factors
 
-        # === USER SETTINGS ===
-        self.SAMPLING_FREQ_HZ = 10000.0   # Hz
-        self.NPERSEG = 4096               # Welch segment length
-        self.HIST_BINS = 100              # Histogram bins
-        #self.BIN_RANGE = (-350, 350)      # Histogram absciss limits in nanometers
-        self.BIN_RANGE = (-100, 100)      # Histogram absciss limits in nanometers
-        self.K_BOLTZMANN = 4.1            # Boltzmann constant in pN·nm
-        self.CF= 20;                     # QPD calibration factor correction
-        self.cf_var.set(self.CF)
-        self.CALIBRATION_FACTORS = [2.0,                    # AI1 - piezo - 2.0 um / V
-                                    1.0,                    # AI2 - QPD sum - V
-                                    self.CF,       # AI3 - QPD XDIFF - nm / V
-                                    self.CF,       # AI4 - QPD XDIFF - nm / V
-                                    2.0,                    # AI5 - piezo - 2.0 um / V
-                                    1.0,                    # AI6 - LASER correction voltage - V
-                                    1.0                     # AI7 - LASER actual voltage - V
-                                    ]
-        self.CALIBRATION_UNITS = ["um", "AU", "nm", "nm", "um", "V", "V"]
-        self.SIGNAL_TITLES = ["Piezo displacement", "Z displacemnt", "X displacement", "Y displacement", "Piezo displacement", "Laser correction", "Laser level"]
+		# === USER SETTINGS ===
+		self.SAMPLING_FREQ_HZ = 10000.0   # Hz
+		self.NPERSEG = 4096               # Welch segment length
+		self.HIST_BINS = 100              # Histogram bins
+		#self.BIN_RANGE = (-350, 350)      # Histogram absciss limits in nanometers
+		self.BIN_RANGE = (-100, 100)      # Histogram absciss limits in nanometers
+		self.K_BOLTZMANN = 4.1            # Boltzmann constant in pN·nm
+		self.CF= 1000;                     # QPD calibration factor correction
+		self.cf_var.set(self.CF)
+		self.CALIBRATION_FACTORS = [2.0,                    # AI1 - piezo - 2.0 um / V
+									1.0,                    # AI2 - QPD sum - V
+									self.CF,       # AI3 - QPD XDIFF - nm / V
+									self.CF,       # AI4 - QPD XDIFF - nm / V
+									2.0,                    # AI5 - piezo - 2.0 um / V
+									1.0,                    # AI6 - LASER correction voltage - V
+									1.0                     # AI7 - LASER actual voltage - V
+									]
+		self.CALIBRATION_UNITS = ["um", "AU", "nm", "nm", "um", "V", "V"]
+		self.SIGNAL_TITLES = ["Piezo displacement", "Z displacemnt", "X displacement", "Y displacement", "Piezo displacement", "Laser correction", "Laser level"]
 
-        self.data_list = list() #list with data (e.g. histogram data) used to plot combined data from multiple files in same figure for comparison
-        # ======================
+		self.data_list = list() #list with data (e.g. histogram data) used to plot combined data from multiple files in same figure for comparison
+		# ======================
 
-        self.profiler = cProfile.Profile() # Initialize the profiler
+		self.profiler = cProfile.Profile() # Initialize the profiler
 
-        self.create_widgets()
-        self.setup_event_handlers()
+		self.create_widgets()
+		self.setup_event_handlers()
 
-    def create_widgets(self:Self):
-        """Construct and lay out all GUI widgets.
-        
-        Builds the left control pane (file selection, signal list, preprocessing
-        controls and analysis buttons) and the right pane with the embedded
-        Matplotlib figure and toolbar.
-        """
-        # Main frame
-        main_frame = ttk.Frame(self, padding="10")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+	def create_widgets(self:Self):
+		"""Construct and lay out all GUI widgets.
+		
+		Builds the left control pane (file selection, signal list, preprocessing
+		controls and analysis buttons) and the right pane with the embedded
+		Matplotlib figure and toolbar.
+		"""
+		# Main frame
+		main_frame = ttk.Frame(self, padding="10")
+		main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Panedwindow for left (controls) and right (plot)
-        self.paned_window = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
-        self.paned_window.pack(fill=tk.BOTH, expand=True)
+		# Panedwindow for left (controls) and right (plot)
+		self.paned_window = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
+		self.paned_window.pack(fill=tk.BOTH, expand=True)
 
-        # --- Left Pane (Controls) ---
-        control_frame = ttk.Frame(self.paned_window, padding="10")
-        self.paned_window.add(control_frame, weight=1)
+		# --- Left Pane (Controls) ---
+		control_frame = ttk.Frame(self.paned_window, padding="10")
+		self.paned_window.add(control_frame, weight=1)
 
-        # File selection
-        file_frame = ttk.LabelFrame(control_frame, text="File Selection", padding="10")
-        file_frame.pack(fill=tk.X, pady=5)
+		# File selection
+		file_frame = ttk.LabelFrame(control_frame, text="File Selection", padding="10")
+		file_frame.pack(fill=tk.X, pady=5)
 
-        ttk.Entry(file_frame, textvariable=self.file_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-        ttk.Button(file_frame, text="Browse", command=self.browse_file).pack(side=tk.RIGHT)
+		ttk.Entry(file_frame, textvariable=self.file_path).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+		ttk.Button(file_frame, text="Browse", command=self.browse_file).pack(side=tk.RIGHT)
 
-        # Signal selection
-        signal_frame = ttk.LabelFrame(control_frame, text="Select Signals", padding="10")
-        signal_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+		# Signal selection
+		signal_frame = ttk.LabelFrame(control_frame, text="Select Signals", padding="10")
+		signal_frame.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        self.signal_listbox = tk.Listbox(signal_frame, selectmode=tk.MULTIPLE, exportselection=False)
-        self.signal_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.signal_listbox.bind('<<ListboxSelect>>', self.on_signal_select)
+		self.signal_listbox = tk.Listbox(signal_frame, selectmode=tk.MULTIPLE, exportselection=False)
+		self.signal_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+		self.signal_listbox.bind('<<ListboxSelect>>', self.on_signal_select)
 
-        # Add a scrollbar for the listbox
-        signal_scrollbar = ttk.Scrollbar(signal_frame, orient=tk.VERTICAL, command=self.signal_listbox.yview)
-        signal_scrollbar.pack(side=tk.LEFT, fill=tk.Y)
-        self.signal_listbox.config(yscrollcommand=signal_scrollbar.set)
+		# Add a scrollbar for the listbox
+		signal_scrollbar = ttk.Scrollbar(signal_frame, orient=tk.VERTICAL, command=self.signal_listbox.yview)
+		signal_scrollbar.pack(side=tk.LEFT, fill=tk.Y)
+		self.signal_listbox.config(yscrollcommand=signal_scrollbar.set)
 
-        # --- Plotting Controls Frame (Container for Plotting and Preprocessing) ---
-        plot_controls_container_frame = ttk.LabelFrame(control_frame, text="Controls", padding="10")
-        plot_controls_container_frame.pack(fill=tk.X, pady=5)
+		# --- Plotting Controls Frame (Container for Plotting and Preprocessing) ---
+		plot_controls_container_frame = ttk.LabelFrame(control_frame, text="Controls", padding="10")
+		plot_controls_container_frame.pack(fill=tk.X, pady=5)
 
-        # Plotting Controls Sub-frame
-        plotting_sub_frame = ttk.LabelFrame(plot_controls_container_frame, text="Plotting", padding="10")
-        plotting_sub_frame.pack(fill=tk.X, pady=2)
+		# Plotting Controls Sub-frame
+		plotting_sub_frame = ttk.LabelFrame(plot_controls_container_frame, text="Plotting", padding="10")
+		plotting_sub_frame.pack(fill=tk.X, pady=2)
 
-        # Arrange processing buttons in two columns: left = existing buttons, right = new/extra buttons
-        proc_buttons_frame = ttk.Frame(plotting_sub_frame)
-        proc_buttons_frame.pack(fill=tk.X)
+		# Arrange processing buttons in two columns: left = existing buttons, right = new/extra buttons
+		proc_buttons_frame = ttk.Frame(plotting_sub_frame)
+		proc_buttons_frame.pack(fill=tk.X)
 
-        left_col = ttk.Frame(proc_buttons_frame)
-        left_col.grid(row=0, column=0, sticky='nw')
-        right_col = ttk.Frame(proc_buttons_frame)
-        right_col.grid(row=0, column=1, sticky='ne', padx=10)
+		left_col = ttk.Frame(proc_buttons_frame)
+		left_col.grid(row=0, column=0, sticky='nw')
+		right_col = ttk.Frame(proc_buttons_frame)
+		right_col.grid(row=0, column=1, sticky='ne', padx=10)
 
-        ttk.Button(left_col, text="Plot Selected Signals", command=self.plot_selected_signals).pack(pady=2, anchor='w')
-        ttk.Button(left_col, text="Compute PSD", command=self.compute_psd).pack(pady=2, anchor='w')
-        ttk.Button(left_col, text="Save Selected Data", command=self.save_selected_data).pack(pady=2, anchor='w')
-        ttk.Button(left_col, text="Save PSD Data", command=self.save_psd_data).pack(pady=2, anchor='w')
-        ttk.Button(left_col, text="Histogram PDF", command=self.compute_histogram_and_plots).pack(pady=2, anchor='w')
-        ttk.Button(left_col, text="Plot combined pdf", command=self.plot_combined_pdf).pack(pady=2, anchor='w')
+		ttk.Button(left_col, text="Plot Selected Signals", command=self.plot_selected_signals).pack(pady=2, anchor='w')
+		ttk.Button(left_col, text="Compute PSD", command=self.compute_psd).pack(pady=2, anchor='w')
+		ttk.Button(left_col, text="Save Selected Data", command=self.save_selected_data).pack(pady=2, anchor='w')
+		ttk.Button(left_col, text="Save PSD Data", command=self.save_psd_data).pack(pady=2, anchor='w')
+		ttk.Button(left_col, text="Histogram PDF", command=self.compute_histogram_and_plots).pack(pady=2, anchor='w')
+		ttk.Button(left_col, text="Plot combined pdf", command=self.plot_combined_pdf).pack(pady=2, anchor='w')
 
-        # Start the second column with the requested button
-        ttk.Button(right_col, text="Autocorrelation data", command=self.compute_autocorrelation_data).pack(pady=2, anchor='w')
-        ttk.Button(right_col, text="Variance random window", command=self.variance_random_window).pack(pady=2, anchor='w')
-        ttk.Button(right_col, text="Generate random noise", command=self.write_fake_gaussian_noise_to_csv).pack(pady=2, anchor='w')
-        ttk.Button(right_col, text="Open FPT window", command=self.open_fpt_window).pack(pady=2, anchor='w')
-        
+		# Start the second column with the requested button
+		ttk.Button(right_col, text="Autocorrelation data", command=self.compute_autocorrelation_data).pack(pady=2, anchor='w')
+		ttk.Button(right_col, text="Variance random window", command=self.variance_random_window).pack(pady=2, anchor='w')
+		ttk.Button(right_col, text="Generate random noise", command=self.write_fake_gaussian_noise_to_csv).pack(pady=2, anchor='w')
+		ttk.Button(right_col, text="Open FPT window", command=self.open_fpt_window).pack(pady=2, anchor='w')
+		
 
-        # Preprocessing Controls Sub-frame
-        preprocessing_frame = ttk.LabelFrame(plot_controls_container_frame, text="Preprocessing", padding="10")
-        preprocessing_frame.pack(fill=tk.X, pady=2)
+		# Preprocessing Controls Sub-frame
+		preprocessing_frame = ttk.LabelFrame(plot_controls_container_frame, text="Preprocessing", padding="10")
+		preprocessing_frame.pack(fill=tk.X, pady=2)
 
-        # put a grid frame in the preprocessing_frame to accomodate more controls
-        preprocessing_checkbuttons_frame = ttk.Frame(preprocessing_frame, padding="10")
-        preprocessing_checkbuttons_frame.pack(fill=tk.X, pady=2)
+		# put a grid frame in the preprocessing_frame to accomodate more controls
+		preprocessing_checkbuttons_frame = ttk.Frame(preprocessing_frame, padding="10")
+		preprocessing_checkbuttons_frame.pack(fill=tk.X, pady=2)
 
-        ttk.Checkbutton(preprocessing_checkbuttons_frame, text="Normalize Signals", variable=self.normalize_var, command=self.on_normalize_toggle).grid(row=0, column=0, pady=2, sticky='W')
-        ttk.Checkbutton(preprocessing_checkbuttons_frame, text="Detrend Signals", variable=self.detrend_var, command=self.on_detrend_toggle).grid(row=1, column=0,  pady=2, sticky='W')
-        ttk.Checkbutton(preprocessing_checkbuttons_frame, text="Calibrate Signals", variable=self.calibrate_var, command=self.on_calibrate_toggle).grid(row=2, column=0,  pady=2, sticky='W')
+		ttk.Checkbutton(preprocessing_checkbuttons_frame, text="Normalize Signals", variable=self.normalize_var, command=self.on_normalize_toggle).grid(row=0, column=0, pady=2, sticky='W')
+		ttk.Checkbutton(preprocessing_checkbuttons_frame, text="Detrend Signals", variable=self.detrend_var, command=self.on_detrend_toggle).grid(row=1, column=0,  pady=2, sticky='W')
+		ttk.Checkbutton(preprocessing_checkbuttons_frame, text="Calibrate Signals", variable=self.calibrate_var, command=self.on_calibrate_toggle).grid(row=2, column=0,  pady=2, sticky='W')
 
-        #let the user modify the CF used in computing CALIBRATION_FACTORS
-        cf_frame = ttk.Frame(preprocessing_checkbuttons_frame)
-        cf_frame.grid(row=2, column=1,  pady=2, sticky='W')
+		#let the user modify the CF used in computing CALIBRATION_FACTORS
+		cf_frame = ttk.Frame(preprocessing_checkbuttons_frame)
+		cf_frame.grid(row=2, column=1,  pady=2, sticky='W')
 
-        ttk.Label(cf_frame, text="CF").pack(side='left', pady=2)
-        self.cf_entry = ttk.Entry(cf_frame, textvariable=self.cf_var)
-        self.cf_entry.pack(side='left', pady=2)
-        self.cf_entry.bind('<Return>', self.update_conversion_factors_from_cf)
-        self.cf_entry.bind('<FocusOut>', self.update_conversion_factors_from_cf, add='+')
-
-
-        #ttk.Checkbutton(preprocessing_frame, text="Normalize Signals", variable=self.normalize_var, command=self.on_normalize_toggle).pack(anchor=tk.W, pady=2)
-        #ttk.Checkbutton(preprocessing_frame, text="Detrend Signals", variable=self.detrend_var, command=self.on_detrend_toggle).pack(anchor=tk.W, pady=2) # New detrend checkbox
-        #ttk.Checkbutton(preprocessing_frame, text="Calibrate Signals", variable=self.calibrate_var, command=self.on_calibrate_toggle).pack(anchor=tk.W, pady=2)
-
-        ref_signal_label = ttk.Label(preprocessing_frame, text="Reference Signal:")
-        ref_signal_label.pack(anchor=tk.W, pady=2)
-        self.reference_signal_combobox = ttk.Combobox(preprocessing_frame, textvariable=self.reference_signal_var, state="readonly")
-        self.reference_signal_combobox.pack(fill=tk.X, pady=2)
-        self.reference_signal_combobox.bind("<<ComboboxSelected>>", self.on_reference_signal_select)
+		ttk.Label(cf_frame, text="CF").pack(side='left', pady=2)
+		self.cf_entry = ttk.Entry(cf_frame, textvariable=self.cf_var)
+		self.cf_entry.pack(side='left', pady=2)
+		self.cf_entry.bind('<Return>', self.update_conversion_factors_from_cf)
+		self.cf_entry.bind('<FocusOut>', self.update_conversion_factors_from_cf, add='+')
 
 
-        # --- Right Pane (Plotting Area) ---
-        plot_frame = ttk.Frame(self.paned_window, padding="10")
-        self.paned_window.add(plot_frame, weight=3)
+		#ttk.Checkbutton(preprocessing_frame, text="Normalize Signals", variable=self.normalize_var, command=self.on_normalize_toggle).pack(anchor=tk.W, pady=2)
+		#ttk.Checkbutton(preprocessing_frame, text="Detrend Signals", variable=self.detrend_var, command=self.on_detrend_toggle).pack(anchor=tk.W, pady=2) # New detrend checkbox
+		#ttk.Checkbutton(preprocessing_frame, text="Calibrate Signals", variable=self.calibrate_var, command=self.on_calibrate_toggle).pack(anchor=tk.W, pady=2)
 
-        # Matplotlib figure and canvas
-        # We will use a single axes for now to simplify time selection, can expand later
-        self.fig, self.ax = plt.subplots(1, 1, figsize=(8, 6)) 
-        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
-        self.canvas_widget = self.canvas.get_tk_widget()
-        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
-
-        self.toolbar = NavigationToolbar2Tk(self.canvas, plot_frame)
-        self.toolbar.update()
-        self.canvas_widget.pack(fill=tk.BOTH, expand=True)
-
-        # Initial plot setup
-        self.ax.set_title("Select Signals and Time Range")
-        self.ax.set_xlabel("Time (s)")
-        self.ax.set_ylabel("Voltage (V)")
-        self.fig.tight_layout()
-        self.canvas.draw()
-
-    def load_settings(self:Self):
-        """Load settings from file or return defaults if file doesn't exist or is invalid."""
-        if not os.path.exists(self.settings_file):
-            return self.default_settings.copy()
-        try:
-            with open(self.settings_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                # Merge with defaults to ensure missing keys are filled
-                return {**self.default_settings, **data}
-        except (json.JSONDecodeError, IOError):
-            print("Warning: Settings file is corrupted. Using defaults.")
-            return self.default_settings.copy()
-
-    def save_settings(self:Self,settings):
-        """Save settings to file safely."""
-        try:
-            with open(self.settings_file, "w", encoding="utf-8") as f:
-                json.dump(settings, f, indent=4)
-        except IOError as e:
-            print(f"Error saving settings: {e}")
-
-    def setup_event_handlers(self:Self):
-        """Attach Matplotlib event callbacks for interactive time selection.
-        
-        Left-click defines the start and end of the time window; right-click
-        clears the current selection.
-        """
-        # Bind mouse events for time selection
-        # FIX: Use self.canvas instead of self.canvas_widget for mpl_connect
-        self.canvas.mpl_connect('button_press_event', self.on_plot_click)
-        self.canvas.mpl_connect('button_release_event', self.on_plot_release)
-        self.canvas.mpl_connect('motion_notify_event', self.on_plot_motion)
-
-    def browse_file(self:Self):
-        """Open a file dialog to select a CSV file and load it.
-        
-        Updates the file path entry, remembers the last opened directory, and
-        calls load_data() to parse the chosen file.
-        """
-        f_path = filedialog.askopenfilename(
-            initialdir=self.settings["last_opened_directory"], # Use last opened directory
-            title="Select CSV File",
-            filetypes=(("CSV files", "*.csv"), ("All files", "*.*"))
-        )
-        if f_path:
-            self.file_path.set(f_path)
-            self.settings["last_opened_directory"] = os.path.dirname(f_path)
-            self.save_settings(self.settings)   
-            self.load_data(f_path)
-            
-    @staticmethod
-    def getCsvConfigurationFile(fileName:str, device = "Bio Controller", returnType:type = dict):
-        pf = pd.read_csv(fileName, sep=',', lineterminator="\n", header=1)
-        l = [dict(row) for index, row in pf.iterrows()]
-        if '\r' in list(l[0].keys())[-1]:
-            lastKey_slashR = list(l[0].keys())[-1]
-            lastKey = lastKey_slashR.replace('\r','')
-            for i in range(len(l)):
-                l[i][lastKey] = l[i][lastKey_slashR].replace('\r','')
-                l[i].pop(lastKey_slashR)
-        if returnType == list:
-            if device is not None:
-                return [e for e in l if e["Device"] == device]
-            else:
-                return l		
-        elif returnType == dict:
-            if device is not None:
-                return {e["Parameter internal name"] : e for e in l if e["Device"] == device}
-            else:
-                return {e["Parameter internal name"] : e for e in l}
-        
-    @staticmethod
-    def getCsvTimeseries(f_path:str)->tuple[pd.DataFrame, str|None]:
-        # Try reading with tab delimiter first, then comma
-        try:
-            data = pd.read_csv(f_path, delimiter='\t')
-        except Exception:
-            data = pd.read_csv(f_path, delimiter=',')
-
-        # Identify time and signal columns
-        potential_time_cols = [col for col in data.columns if 'tim' in col.lower()]
-        if potential_time_cols:
-            timeColumn = potential_time_cols[0]
-        else:
-            timeColumn = None
-        return data, timeColumn
+		ref_signal_label = ttk.Label(preprocessing_frame, text="Reference Signal:")
+		ref_signal_label.pack(anchor=tk.W, pady=2)
+		self.reference_signal_combobox = ttk.Combobox(preprocessing_frame, textvariable=self.reference_signal_var, state="readonly")
+		self.reference_signal_combobox.pack(fill=tk.X, pady=2)
+		self.reference_signal_combobox.bind("<<ComboboxSelected>>", self.on_reference_signal_select)
 
 
-    @cache
-    def load_data(self:Self, f_path:str)->None:
-        """Load time-series data from the given CSV file.
-        
-        Attempts both tab- and comma-separated formats, detects the time column,
-        computes sampling frequency, populates the signal listbox and reference
-        signal combobox, and triggers the initial plot.
-        """
-        try:
-            # Explicitly reset time selection markers and patches before loading new data
-            self.reset_time_selection() 
-            
-            self.data, self.time_column = self.getCsvTimeseries(f_path)
-            
-            if self.time_column:
-                self.SAMPLING_FREQ_HZ = np.mean(np.diff(self.data[self.time_column].values))
-            else:
-                # Fallback to the first column if no clear time column is found
-                self.time_column = self.data.columns[0]
-                print(f"Warning: No clear time column found. Using '{self.time_column}' as time column.")
+		# --- Right Pane (Plotting Area) ---
+		plot_frame = ttk.Frame(self.paned_window, padding="10")
+		self.paned_window.add(plot_frame, weight=3)
+
+		# Matplotlib figure and canvas
+		# We will use a single axes for now to simplify time selection, can expand later
+		self.fig, self.ax = plt.subplots(1, 1, figsize=(8, 6)) 
+		self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
+		self.canvas_widget = self.canvas.get_tk_widget()
+		self.canvas_widget.pack(fill=tk.BOTH, expand=True)
+
+		self.toolbar = NavigationToolbar2Tk(self.canvas, plot_frame)
+		self.toolbar.update()
+		self.canvas_widget.pack(fill=tk.BOTH, expand=True)
+
+		# Initial plot setup
+		self.ax.set_title("Select Signals and Time Range")
+		self.ax.set_xlabel("Time (s)")
+		self.ax.set_ylabel("Voltage (V)")
+		self.fig.tight_layout()
+		self.canvas.draw()
+
+	def load_settings(self:Self):
+		"""Load settings from file or return defaults if file doesn't exist or is invalid."""
+		if not os.path.exists(self.settings_file):
+			return self.default_settings.copy()
+		try:
+			with open(self.settings_file, "r", encoding="utf-8") as f:
+				data = json.load(f)
+				# Merge with defaults to ensure missing keys are filled
+				return {**self.default_settings, **data}
+		except (json.JSONDecodeError, IOError):
+			print("Warning: Settings file is corrupted. Using defaults.")
+			return self.default_settings.copy()
+
+	def save_settings(self:Self,settings):
+		"""Save settings to file safely."""
+		try:
+			with open(self.settings_file, "w", encoding="utf-8") as f:
+				json.dump(settings, f, indent=4)
+		except IOError as e:
+			print(f"Error saving settings: {e}")
+
+	def setup_event_handlers(self:Self):
+		"""Attach Matplotlib event callbacks for interactive time selection.
+		
+		Left-click defines the start and end of the time window; right-click
+		clears the current selection.
+		"""
+		# Bind mouse events for time selection
+		# FIX: Use self.canvas instead of self.canvas_widget for mpl_connect
+		self.canvas.mpl_connect('button_press_event', self.on_plot_click)
+		self.canvas.mpl_connect('button_release_event', self.on_plot_release)
+		self.canvas.mpl_connect('motion_notify_event', self.on_plot_motion)
+
+	def browse_file(self:Self):
+		"""Open a file dialog to select a CSV file and load it.
+		
+		Updates the file path entry, remembers the last opened directory, and
+		calls load_data() to parse the chosen file.
+		"""
+		f_path = filedialog.askopenfilename(
+			initialdir=self.settings["last_opened_directory"], # Use last opened directory
+			title="Select CSV File",
+			filetypes=(("CSV files", "*.csv"), ("All files", "*.*"))
+		)
+		if f_path:
+			self.file_path.set(f_path)
+			self.settings["last_opened_directory"] = os.path.dirname(f_path)
+			self.save_settings(self.settings)   
+			self.load_data(f_path)
+			
+	@staticmethod
+	def getCsvConfigurationFile(fileName:str, device = "Bio Controller", returnType:type = dict):
+		pf = pd.read_csv(fileName, sep=',', lineterminator="\n", header=1)
+		l = [dict(row) for index, row in pf.iterrows()]
+		if '\r' in list(l[0].keys())[-1]:
+			lastKey_slashR = list(l[0].keys())[-1]
+			lastKey = lastKey_slashR.replace('\r','')
+			for i in range(len(l)):
+				l[i][lastKey] = l[i][lastKey_slashR].replace('\r','')
+				l[i].pop(lastKey_slashR)
+		if returnType == list:
+			if device is not None:
+				return [e for e in l if e["Device"] == device]
+			else:
+				return l		
+		elif returnType == dict:
+			if device is not None:
+				return {e["Parameter internal name"] : e for e in l if e["Device"] == device}
+			else:
+				return {e["Parameter internal name"] : e for e in l}
+		
+	@staticmethod
+	def getCsvTimeseries(f_path:str)->tuple[pd.DataFrame, str|None]:
+		# Try reading with tab delimiter first, then comma
+		try:
+			data = pd.read_csv(f_path, delimiter='\t')
+		except Exception:
+			data = pd.read_csv(f_path, delimiter=',')
+
+		# Identify time and signal columns
+		potential_time_cols = [col for col in data.columns if 'tim' in col.lower()]
+		if potential_time_cols:
+			timeColumn = potential_time_cols[0]
+		else:
+			timeColumn = None
+		return data, timeColumn
 
 
-            self.signal_columns = [col for col in self.data.columns if col != self.time_column]
+	@cache
+	def load_data(self:Self, f_path:str)->None:
+		"""Load time-series data from the given CSV file.
+		
+		Attempts both tab- and comma-separated formats, detects the time column,
+		computes sampling frequency, populates the signal listbox and reference
+		signal combobox, and triggers the initial plot.
+		"""
+		try:
+			# Explicitly reset time selection markers and patches before loading new data
+			self.reset_time_selection() 
+			
+			self.data, self.time_column = self.getCsvTimeseries(f_path)
+			
+			if self.time_column:
+				self.SAMPLING_FREQ_HZ = np.mean(np.diff(self.data[self.time_column].values))
+			else:
+				# Fallback to the first column if no clear time column is found
+				self.time_column = self.data.columns[0]
+				print(f"Warning: No clear time column found. Using '{self.time_column}' as time column.")
+
+
+			self.signal_columns = [col for col in self.data.columns if col != self.time_column]
 
             # Update signal selection listbox
             self.signal_listbox.delete(0, tk.END)
@@ -477,318 +477,318 @@ class DataAnalyzerApp(tk.Tk):
             else:
                 self.selected_signals = []
 
-            # Populate reference signal combobox
-            self.reference_signal_combobox['values'] = self.signal_columns
-            if 'AI2' in self.signal_columns:
-                self.reference_signal_var.set('AI2')
-            elif self.signal_columns:
-                self.reference_signal_var.set(self.signal_columns[0]) # Default to first signal if AI2 not found
-            else:
-                self.reference_signal_var.set('')
-            
-            # Call plot_selected_signals to reflect this initial selection
-            self.plot_selected_signals() 
+			# Populate reference signal combobox
+			self.reference_signal_combobox['values'] = self.signal_columns
+			if 'AI2' in self.signal_columns:
+				self.reference_signal_var.set('AI2')
+			elif self.signal_columns:
+				self.reference_signal_var.set(self.signal_columns[0]) # Default to first signal if AI2 not found
+			else:
+				self.reference_signal_var.set('')
+			
+			# Call plot_selected_signals to reflect this initial selection
+			self.plot_selected_signals() 
 
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load data: {e}")
-            self.data = None
-            self.time_column = None
-            self.signal_columns = []
-            self.selected_signals = []
-            self.signal_listbox.delete(0, tk.END)
-            self.reference_signal_combobox['values'] = []
-            self.reference_signal_var.set('')
+		except Exception as e:
+			messagebox.showerror("Error", f"Failed to load data: {e}")
+			self.data = None
+			self.time_column = None
+			self.signal_columns = []
+			self.selected_signals = []
+			self.signal_listbox.delete(0, tk.END)
+			self.reference_signal_combobox['values'] = []
+			self.reference_signal_var.set('')
 
-    def _get_processed_data(self:Self, signal_col:str, full_data=True, time_start=None, time_end=None)->np.ndarray:
-        """
-        Returns the processed (normalized or original) data for a given signal column.
-        If full_data is False, returns decimated data for plotting.
-        """
-        if "(" in signal_col:
-            signal_col = signal_col[:str.index(signal_col, " (")]
-        if self.data is None or signal_col not in self.data.columns:
-            return np.array([])
+	def _get_processed_data(self:Self, signal_col:str, full_data=True, time_start=None, time_end=None)->np.ndarray:
+		"""
+		Returns the processed (normalized or original) data for a given signal column.
+		If full_data is False, returns decimated data for plotting.
+		"""
+		if "(" in signal_col:
+			signal_col = signal_col[:str.index(signal_col, " (")]
+		if self.data is None or signal_col not in self.data.columns:
+			return np.array([])
 
-        #self.start_profiling() # Start profiling
-        
-        time_data = self.data[self.time_column].values
-        if time_start is not None and time_end is not None:
-            time_mask = (time_data >= time_start) & (time_data <= time_end)
-            data_series = self.data[signal_col].values[time_mask]
-        else:
-            time_mask = None
-            data_series = self.data[signal_col].values
+		#self.start_profiling() # Start profiling
+		
+		time_data = self.data[self.time_column].values
+		if time_start is not None and time_end is not None:
+			time_mask = (time_data >= time_start) & (time_data <= time_end)
+			data_series = self.data[signal_col].values[time_mask]
+		else:
+			time_mask = None
+			data_series = self.data[signal_col].values
 
-        
-        
-        # Apply normalization first
-        if self.normalize_var.get():
-            ref_signal_name = self.reference_signal_var.get()
-            if ref_signal_name and ref_signal_name in self.data.columns:
-                if time_mask is not None:
-                    reference_data = self.data[ref_signal_name].values[time_mask]
-                else:
-                    reference_data = self.data[ref_signal_name].values
-                # Avoid division by zero
-                arr = reference_data == 0
-                if np.any(arr):
-                    reference_data[reference_data == 0] = 1e-9 # Small number to prevent division by zero
+		
+		
+		# Apply normalization first
+		if self.normalize_var.get():
+			ref_signal_name = self.reference_signal_var.get()
+			if ref_signal_name and ref_signal_name in self.data.columns:
+				if time_mask is not None:
+					reference_data = self.data[ref_signal_name].values[time_mask]
+				else:
+					reference_data = self.data[ref_signal_name].values
+				# Avoid division by zero
+				arr = reference_data == 0
+				if np.any(arr):
+					reference_data[reference_data == 0] = 1e-9 # Small number to prevent division by zero
 
-                data_series = data_series / reference_data
-            else:
-                messagebox.showwarning("Normalization Warning", f"Reference signal '{ref_signal_name}' not found or not selected. Normalization skipped.")
-                self.normalize_var.set(False) # Uncheck normalize if reference is invalid
+				data_series = data_series / reference_data
+			else:
+				messagebox.showwarning("Normalization Warning", f"Reference signal '{ref_signal_name}' not found or not selected. Normalization skipped.")
+				self.normalize_var.set(False) # Uncheck normalize if reference is invalid
 
-        # Then apply detrending
-        if self.detrend_var.get():
-            try:
-                #we try the savitzky golay filter or detrending
-                #dt = np.mean(np.diff(self.data[self.time_column].values))
-                #window_time_length = 0.1 # seconds
-                #window_length = int(window_time_length/dt) # window length must be odd and less than data length
-                #data_series = data_series - savgol_filter(data_series, window_length=window_length, polyorder=3)
-                
-                data_series = detrend(data_series, type='constant')
-            except Exception as e:
-                messagebox.showwarning("Detrending Warning", f"Could not detrend signal '{signal_col}': {e}. Detrending skipped.")
-                self.detrend_var.set(False) # Uncheck detrend if it fails
+		# Then apply detrending
+		if self.detrend_var.get():
+			try:
+				#we try the savitzky golay filter or detrending
+				#dt = np.mean(np.diff(self.data[self.time_column].values))
+				#window_time_length = 0.1 # seconds
+				#window_length = int(window_time_length/dt) # window length must be odd and less than data length
+				#data_series = data_series - savgol_filter(data_series, window_length=window_length, polyorder=3)
+				
+				data_series = detrend(data_series, type='constant')
+			except Exception as e:
+				messagebox.showwarning("Detrending Warning", f"Could not detrend signal '{signal_col}': {e}. Detrending skipped.")
+				self.detrend_var.set(False) # Uncheck detrend if it fails
 
-        calibration_factor = 1.0
-        if self.calibrate_var.get():
-            idx = list(self.data.columns).index(signal_col) - 1
-            calibration_factor = self.CALIBRATION_FACTORS[idx]
-        
-        
-        #self.stop_profiling() # Stop profiling
+		calibration_factor = 1.0
+		if self.calibrate_var.get():
+			idx = list(self.data.columns).index(signal_col) - 1
+			calibration_factor = self.CALIBRATION_FACTORS[idx]
+		
+		
+		#self.stop_profiling() # Stop profiling
 
-        if not full_data: # Decimate for plotting
-            decimation_factor = 50 # Changed from 10 to 50
-            return data_series[::decimation_factor] * calibration_factor
-        
-        
-        return data_series * calibration_factor
+		if not full_data: # Decimate for plotting
+			decimation_factor = 50 # Changed from 10 to 50
+			return data_series[::decimation_factor] * calibration_factor
+		
+		
+		return data_series * calibration_factor
 
-    def on_normalize_toggle(self):
-        """Callback for toggling signal normalization; replot selected signals."""
-        # Re-plot when normalize checkbox is toggled
-        self.plot_selected_signals()
+	def on_normalize_toggle(self):
+		"""Callback for toggling signal normalization; replot selected signals."""
+		# Re-plot when normalize checkbox is toggled
+		self.plot_selected_signals()
 
-    def on_detrend_toggle(self): # New handler for detrend checkbox
-        """Callback for toggling signal detrending; replot selected signals."""
-        # Re-plot when detrend checkbox is toggled
-        self.plot_selected_signals()
+	def on_detrend_toggle(self): # New handler for detrend checkbox
+		"""Callback for toggling signal detrending; replot selected signals."""
+		# Re-plot when detrend checkbox is toggled
+		self.plot_selected_signals()
 
-    def on_calibrate_toggle(self): # New handler for detrend checkbox
-        """Callback for toggling calibration; replot selected signals."""
-        # Re-plot when detrend checkbox is toggled
-        self.plot_selected_signals()
+	def on_calibrate_toggle(self): # New handler for detrend checkbox
+		"""Callback for toggling calibration; replot selected signals."""
+		# Re-plot when detrend checkbox is toggled
+		self.plot_selected_signals()
 
-    def on_reference_signal_select(self, event):
-        """Callback for changing the reference signal used for normalization.
-        
-        Triggers a replot of the currently selected signals.
-        """
-        # Re-plot when reference signal is changed
-        self.plot_selected_signals()
+	def on_reference_signal_select(self, event):
+		"""Callback for changing the reference signal used for normalization.
+		
+		Triggers a replot of the currently selected signals.
+		"""
+		# Re-plot when reference signal is changed
+		self.plot_selected_signals()
 
-    def plot_all_signals(self):
-        """Plot the first seven signal channels vs. time on the main axes.
-        
-        Uses decimated, preprocessed data for a quick overview of the dataset.
-        """
-        if self.data is None or self.time_column is None:
-            return
+	def plot_all_signals(self):
+		"""Plot the first seven signal channels vs. time on the main axes.
+		
+		Uses decimated, preprocessed data for a quick overview of the dataset.
+		"""
+		if self.data is None or self.time_column is None:
+			return
 
-        self.ax.cla() # Clear the single axes
-        t = self.data[self.time_column].values
-        
-        # Decimate data for plotting to improve performance
-        decimation_factor = 50 # Plot every 10th point
-        t_decimated = t[::decimation_factor]
-        
-        # Plotting the first 7 signals as per user's description
-        signals_to_plot = self.signal_columns[:7] 
-        
-        for signal_col in signals_to_plot:
-            # Use _get_processed_data for plotting (decimated)
-            y_decimated = self._get_processed_data(signal_col, full_data=False)
-            self.ax.plot(t_decimated, y_decimated, label=signal_col)
-        
-        self.ax.set_title("Signals vs Time")
-        self.ax.set_xlabel("Time (s)")
-        self.ax.set_ylabel("Voltage (V)")
-        self.ax.legend()
-        self.fig.tight_layout()
-        self.canvas.draw()
+		self.ax.cla() # Clear the single axes
+		t = self.data[self.time_column].values
+		
+		# Decimate data for plotting to improve performance
+		decimation_factor = 50 # Plot every 10th point
+		t_decimated = t[::decimation_factor]
+		
+		# Plotting the first 7 signals as per user's description
+		signals_to_plot = self.signal_columns[:7] 
+		
+		for signal_col in signals_to_plot:
+			# Use _get_processed_data for plotting (decimated)
+			y_decimated = self._get_processed_data(signal_col, full_data=False)
+			self.ax.plot(t_decimated, y_decimated, label=signal_col)
+		
+		self.ax.set_title("Signals vs Time")
+		self.ax.set_xlabel("Time (s)")
+		self.ax.set_ylabel("Voltage (V)")
+		self.ax.legend()
+		self.fig.tight_layout()
+		self.canvas.draw()
 
-    def update_conversion_factors_from_cf(self, event):
-        """Update QPD calibration factors when the CF field is edited.
-        
-        Recomputes the conversion factors for the QPD channels and refreshes the
-        plot so that the new physical scaling is visible.
-        """
-        # called when cf_entry gets modified
-        self.CALIBRATION_FACTORS[2] = self.cf_var.get()
-        self.CALIBRATION_FACTORS[3] = self.cf_var.get()
+	def update_conversion_factors_from_cf(self, event):
+		"""Update QPD calibration factors when the CF field is edited.
+		
+		Recomputes the conversion factors for the QPD channels and refreshes the
+		plot so that the new physical scaling is visible.
+		"""
+		# called when cf_entry gets modified
+		self.CALIBRATION_FACTORS[2] = self.cf_var.get()
+		self.CALIBRATION_FACTORS[3] = self.cf_var.get()
 
-        # replot the signals
-        self.plot_selected_signals()
+		# replot the signals
+		self.plot_selected_signals()
 
-    def on_signal_select(self, event):
-        """Update the list of selected signals from the listbox and replot."""
-        # Update the list of selected signals
-        selected_indices = self.signal_listbox.curselection()
-        self.selected_signals = [self.signal_listbox.get(i) for i in selected_indices]
-        # Re-plot immediately when selection changes
-        self.plot_selected_signals()
+	def on_signal_select(self, event):
+		"""Update the list of selected signals from the listbox and replot."""
+		# Update the list of selected signals
+		selected_indices = self.signal_listbox.curselection()
+		self.selected_signals = [self.signal_listbox.get(i) for i in selected_indices]
+		# Re-plot immediately when selection changes
+		self.plot_selected_signals()
 
-    def plot_selected_signals(self):
-        """Plot the currently selected signals vs. time on the main axes.
-        
-        Clears previous contents, applies preprocessing (normalize, detrend,
-        calibrate) to each selected signal, plots them versus time, and restores
-        any existing time-selection highlight.
-        """
-        if self.data is None or self.time_column is None or not self.selected_signals:
-            return
+	def plot_selected_signals(self):
+		"""Plot the currently selected signals vs. time on the main axes.
+		
+		Clears previous contents, applies preprocessing (normalize, detrend,
+		calibrate) to each selected signal, plots them versus time, and restores
+		any existing time-selection highlight.
+		"""
+		if self.data is None or self.time_column is None or not self.selected_signals:
+			return
 
-        self.ax.cla() # Clear the single axes
-        # Reset line markers and patches when axes are cleared
-        self.start_line = None
-        self.end_line = None
-        for patch in self.highlight_patches:
-            try: # Added try-except for robustness
-                patch.remove()
-            except NotImplementedError:
-                pass
-        self.highlight_patches = []
+		self.ax.cla() # Clear the single axes
+		# Reset line markers and patches when axes are cleared
+		self.start_line = None
+		self.end_line = None
+		for patch in self.highlight_patches:
+			try: # Added try-except for robustness
+				patch.remove()
+			except NotImplementedError:
+				pass
+		self.highlight_patches = []
 
-        t = self.data[self.time_column].values
-        
-        # Decimate time data for plotting
-        decimation_factor = 50 # Plot every 10th point
-        t_decimated = t[::decimation_factor]
+		t = self.data[self.time_column].values
+		
+		# Decimate time data for plotting
+		decimation_factor = 50 # Plot every 10th point
+		t_decimated = t[::decimation_factor]
 
-        plotted_signals_count = 0
-        last_plotted_signal = None
-        
-        for signal_col in self.selected_signals:
-            # Use _get_processed_data for plotting (decimated)
-            y_decimated = self._get_processed_data(signal_col, full_data=False)
-            self.ax.plot(t_decimated, y_decimated, label=signal_col)
-            plotted_signals_count += 1
-            last_plotted_signal = signal_col
-        
-        self.ax.set_title("Selected Signals vs Time")
-        self.ax.set_xlabel("Time (s)")
+		plotted_signals_count = 0
+		last_plotted_signal = None
+		
+		for signal_col in self.selected_signals:
+			# Use _get_processed_data for plotting (decimated)
+			y_decimated = self._get_processed_data(signal_col, full_data=False)
+			self.ax.plot(t_decimated, y_decimated, label=signal_col)
+			plotted_signals_count += 1
+			last_plotted_signal = signal_col
+		
+		self.ax.set_title("Selected Signals vs Time")
+		self.ax.set_xlabel("Time (s)")
 
-        if (plotted_signals_count != 1) or (not self.calibrate_var.get()) :
-            y_title = "Voltage (V)"
-        else:
-            idx = list(self.data.columns).index(last_plotted_signal) - 1
-            y_title = f'{self.SIGNAL_TITLES[idx]} ({self.CALIBRATION_UNITS[idx]})'
+		if (plotted_signals_count != 1) or (not self.calibrate_var.get()) :
+			y_title = "Voltage (V)"
+		else:
+			idx = list(self.data.columns).index(last_plotted_signal) - 1
+			y_title = f'{self.SIGNAL_TITLES[idx]} ({self.CALIBRATION_UNITS[idx]})'
 
-        
-        self.ax.set_ylabel(y_title)
+		
+		self.ax.set_ylabel(y_title)
 
-        self.ax.legend()
-        self.fig.tight_layout()
-        self.canvas.draw()
+		self.ax.legend()
+		self.fig.tight_layout()
+		self.canvas.draw()
 
-        # FIX: Redraw time selection if it exists
-        if self.selected_time_range and self.selected_time_range[0] is not None and self.selected_time_range[1] is not None:
-            start_t, end_t = sorted(self.selected_time_range)
-            self.start_line = self.ax.axvline(start_t, color='red', linestyle='--', lw=1, label='Selection Start')
-            self.end_line = self.ax.axvline(end_t, color='green', linestyle='--', lw=1, label='Selection End')
-            highlight_patch = self.ax.axvspan(start_t, end_t, color='yellow', alpha=0.3, label='Selected Time Range')
-            self.highlight_patches.append(highlight_patch)
-            self.fig.canvas.draw_idle()
+		# FIX: Redraw time selection if it exists
+		if self.selected_time_range and self.selected_time_range[0] is not None and self.selected_time_range[1] is not None:
+			start_t, end_t = sorted(self.selected_time_range)
+			self.start_line = self.ax.axvline(start_t, color='red', linestyle='--', lw=1, label='Selection Start')
+			self.end_line = self.ax.axvline(end_t, color='green', linestyle='--', lw=1, label='Selection End')
+			highlight_patch = self.ax.axvspan(start_t, end_t, color='yellow', alpha=0.3, label='Selected Time Range')
+			self.highlight_patches.append(highlight_patch)
+			self.fig.canvas.draw_idle()
 
-    # --- Time Selection Logic ---
-    def on_plot_click(self, event):
-        """Handle mouse clicks on the plot to define or reset the time range.
-        
-        Left clicks set start and end times and draw vertical markers; right
-        clicks clear the current selection and remove all markers.
-        """
-        if event.inaxes != self.ax: return
-        if event.button == 1: # Left mouse button
-            if self.selected_time_range is None:
-                # First click, store start time
-                self.selected_time_range = [event.xdata, None]
-                self.draw_selection_marker(event.xdata, 'start')
-            elif self.selected_time_range[1] is None:
-                # Second click, store end time
-                self.selected_time_range[1] = event.xdata
-                self.draw_selection_marker(event.xdata, 'end')
-                self.draw_time_range_highlight()
-                # Optionally, auto-compute PSD or save data after second click
-                # For now, we just highlight and wait for button press
-            else:
-                # Third click, reset selection
-                self.reset_time_selection()
-                self.selected_time_range = [event.xdata, None]
-                self.draw_selection_marker(event.xdata, 'start')
-        elif event.button == 3: # Right mouse button, reset selection
-            self.reset_time_selection()
+	# --- Time Selection Logic ---
+	def on_plot_click(self, event):
+		"""Handle mouse clicks on the plot to define or reset the time range.
+		
+		Left clicks set start and end times and draw vertical markers; right
+		clicks clear the current selection and remove all markers.
+		"""
+		if event.inaxes != self.ax: return
+		if event.button == 1: # Left mouse button
+			if self.selected_time_range is None:
+				# First click, store start time
+				self.selected_time_range = [event.xdata, None]
+				self.draw_selection_marker(event.xdata, 'start')
+			elif self.selected_time_range[1] is None:
+				# Second click, store end time
+				self.selected_time_range[1] = event.xdata
+				self.draw_selection_marker(event.xdata, 'end')
+				self.draw_time_range_highlight()
+				# Optionally, auto-compute PSD or save data after second click
+				# For now, we just highlight and wait for button press
+			else:
+				# Third click, reset selection
+				self.reset_time_selection()
+				self.selected_time_range = [event.xdata, None]
+				self.draw_selection_marker(event.xdata, 'start')
+		elif event.button == 3: # Right mouse button, reset selection
+			self.reset_time_selection()
 
-    def on_plot_release(self, event):
-        """Placeholder for mouse button release logic (currently not used)."""
-        # This could be used for drag-selection, but for simplicity, we'll stick to two clicks.
-        pass
+	def on_plot_release(self, event):
+		"""Placeholder for mouse button release logic (currently not used)."""
+		# This could be used for drag-selection, but for simplicity, we'll stick to two clicks.
+		pass
 
-    def on_plot_motion(self, event):
-        """Placeholder for mouse-motion logic during selection (currently unused)."""
-        # Optional: show a vertical line following the cursor
-        if event.inaxes == self.ax and self.selected_time_range and self.selected_time_range[1] is None:
-            # Draw a temporary line for the second click preview
-            pass # This can get complex with clearing and redrawing
+	def on_plot_motion(self, event):
+		"""Placeholder for mouse-motion logic during selection (currently unused)."""
+		# Optional: show a vertical line following the cursor
+		if event.inaxes == self.ax and self.selected_time_range and self.selected_time_range[1] is None:
+			# Draw a temporary line for the second click preview
+			pass # This can get complex with clearing and redrawing
 
-    def draw_selection_marker(self, x_val, type):
-        """Draw a vertical line marking the start or end of the selected time window."""
-        # Draw a vertical line to mark the selection point
-        if type == 'start':
-            self.start_line = self.ax.axvline(x_val, color='red', linestyle='--', lw=1, label='Selection Start')
-        elif type == 'end':
-            self.end_line = self.ax.axvline(x_val, color='green', linestyle='--', lw=1, label='Selection End')
-        self.fig.canvas.draw_idle()
+	def draw_selection_marker(self, x_val, type):
+		"""Draw a vertical line marking the start or end of the selected time window."""
+		# Draw a vertical line to mark the selection point
+		if type == 'start':
+			self.start_line = self.ax.axvline(x_val, color='red', linestyle='--', lw=1, label='Selection Start')
+		elif type == 'end':
+			self.end_line = self.ax.axvline(x_val, color='green', linestyle='--', lw=1, label='Selection End')
+		self.fig.canvas.draw_idle()
 
-    def draw_time_range_highlight(self):
-        """Highlight the selected time interval as a shaded region on the plot."""
-        if self.selected_time_range and self.selected_time_range[0] is not None and self.selected_time_range[1] is not None:
-            start_t, end_t = sorted(self.selected_time_range)
-            # Highlight the selected region on the plot
-            highlight_patch = self.ax.axvspan(start_t, end_t, color='yellow', alpha=0.3, label='Selected Time Range')
-            self.highlight_patches.append(highlight_patch) # Store the patch
-            self.fig.canvas.draw_idle()
+	def draw_time_range_highlight(self):
+		"""Highlight the selected time interval as a shaded region on the plot."""
+		if self.selected_time_range and self.selected_time_range[0] is not None and self.selected_time_range[1] is not None:
+			start_t, end_t = sorted(self.selected_time_range)
+			# Highlight the selected region on the plot
+			highlight_patch = self.ax.axvspan(start_t, end_t, color='yellow', alpha=0.3, label='Selected Time Range')
+			self.highlight_patches.append(highlight_patch) # Store the patch
+			self.fig.canvas.draw_idle()
 
-    def reset_time_selection(self):
-        """Clear all time-selection markers and shaded regions and reset the selection."""
-        # Safeguard against removing artists that are None or already removed
-        try:
-            if self.start_line: # Check if start_line exists and is not None
-                self.start_line.remove()
-                self.start_line = None
-        except NotImplementedError:
-            self.start_line = None # Ensure it's None if removal failed
-        
-        try:
-            if self.end_line: # Check if end_line exists and is not None
-                self.end_line.remove()
-                self.end_line = None
-        except NotImplementedError:
-            self.end_line = None # Ensure it's None if removal failed
-        
-        # Remove all stored highlight patches
-        for patch in self.highlight_patches:
-            try:
-                patch.remove()
-            except NotImplementedError:
-                pass # Ignore if already removed or invalid
-        self.highlight_patches = [] # Clear the list
-        
-        self.selected_time_range = None
-        self.fig.canvas.draw_idle()
+	def reset_time_selection(self):
+		"""Clear all time-selection markers and shaded regions and reset the selection."""
+		# Safeguard against removing artists that are None or already removed
+		try:
+			if self.start_line: # Check if start_line exists and is not None
+				self.start_line.remove()
+				self.start_line = None
+		except NotImplementedError:
+			self.start_line = None # Ensure it's None if removal failed
+		
+		try:
+			if self.end_line: # Check if end_line exists and is not None
+				self.end_line.remove()
+				self.end_line = None
+		except NotImplementedError:
+			self.end_line = None # Ensure it's None if removal failed
+		
+		# Remove all stored highlight patches
+		for patch in self.highlight_patches:
+			try:
+				patch.remove()
+			except NotImplementedError:
+				pass # Ignore if already removed or invalid
+		self.highlight_patches = [] # Clear the list
+		
+		self.selected_time_range = None
+		self.fig.canvas.draw_idle()
 
     def create_plot_window(self, parent, fig_title="Analisi PSD", figsize=(6, 4), **kwargs):
         """
@@ -833,17 +833,28 @@ class DataAnalyzerApp(tk.Tk):
         if self.data is None or not self.selected_signals or self.selected_time_range is None or self.selected_time_range[1] is None:
             messagebox.showwarning("Selection Error", "Please load data, select signals, and define a time range first.")
             return
+	# --- Action Functions ---
+	def compute_psd(self):
+		"""Compute and display PSD for selected signals over the chosen time range.
+		
+		Uses scipy.signal.welch() to estimate the power spectral density for
+		each selected signal, creates a new figure with the PSD curves, and
+		stores the PSD of the first selected signal for optional export.
+		"""
+		if self.data is None or not self.selected_signals or self.selected_time_range is None or self.selected_time_range[1] is None:
+			messagebox.showwarning("Selection Error", "Please load data, select signals, and define a time range first.")
+			return
 
-        start_t, end_t = sorted(self.selected_time_range)
-        
-        # Filter data for the selected time range
-        time_data = self.data[self.time_column].values
-        # Use original time data for computation
-        data_in_range_full = self.data[(time_data >= start_t) & (time_data <= end_t)]
+		start_t, end_t = sorted(self.selected_time_range)
+		
+		# Filter data for the selected time range
+		time_data = self.data[self.time_column].values
+		# Use original time data for computation
+		data_in_range_full = self.data[(time_data >= start_t) & (time_data <= end_t)]
 
-        if data_in_range_full.empty:
-            messagebox.showerror("Error", "No data found within the selected time range.")
-            return
+		if data_in_range_full.empty:
+			messagebox.showerror("Error", "No data found within the selected time range.")
+			return
 
         # Calculate sampling frequency (important for PSD)
         # Use the original time data to get a more stable sampling frequency estimate
@@ -855,52 +866,54 @@ class DataAnalyzerApp(tk.Tk):
         if len(self.selected_signals) == 1: # Ensure psd_axes is iterable even for one signal
             psd_axes = [psd_axes]
 
-        
-        def lorentzian(x, amplitude, center, fwhm):
-            # Lorentzian function: I = amplitude * (fwhm/2)^2 / ((x - center)^2 + (fwhm/2)^2)
-            gamma = fwhm / 2
-            return amplitude * (gamma**2) / ((x - center)**2 + gamma**2)
-        
-        def lorentzian2(f, A, fc):
-            """Lorentzian PSD without noise floor: A / (1 + (f/fc)^2)."""
-            return A / (1 + (f / fc)**2)
-        
-        def lorentzian_goodness_of_fit(f, psd, A, fc):
-            """Calculate R-squared for the Lorentzian fit."""
-            fitted_psd = lorentzian2(f, A, fc)
-            residuals = psd - fitted_psd
-            ss_res = np.sum(residuals**2)
-            ss_tot = np.sum((psd - np.mean(psd))**2)
-            r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-            return r_squared
+		
+		def lorentzian(x, amplitude, center, fwhm):
+			# Lorentzian function: I = amplitude * (fwhm/2)^2 / ((x - center)^2 + (fwhm/2)^2)
+			gamma = fwhm / 2
+			return amplitude * (gamma**2) / ((x - center)**2 + gamma**2)
+		
+		def lorentzian2(f, A, fc):
+			"""Lorentzian PSD without noise floor: A / (1 + (f/fc)^2)."""
+			return A / (1 + (f / fc)**2)
+		
+		def lorentzian_goodness_of_fit(f, psd, A, fc):
+			"""Calculate R-squared for the Lorentzian fit."""
+			fitted_psd = lorentzian2(f, A, fc)
+			residuals = psd - fitted_psd
+			ss_res = np.sum(residuals**2)
+			ss_tot = np.sum((psd - np.mean(psd))**2)
+			r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+			return r_squared
 
-        for i, signal_col in enumerate(self.selected_signals):
-            # Use _get_processed_data for computation (full data)
-            signal_data = self._get_processed_data(signal_col, full_data=True, time_start=start_t, time_end=end_t)
-            
-            # Compute PSD using Welch's method
-            # nperseg: length of each segment. A common choice is 256 or 512.
-            # fs: sampling frequency
-            try:
-                freqs, psd = welch(signal_data, fs=sampling_freq, nperseg=4096) # Increased nperseg for better resolution
-                # FIX: Use loglog for both axes logarithmic scale
-                psd_axes[i].loglog(freqs, psd, label="PSD data") # Changed from semilogy to loglog
-                psd_axes[i].set_title(f"PSD of {signal_col}")
-                psd_axes[i].set_xlabel("Frequency (Hz)")
-                psd_axes[i].set_ylabel("Power Spectral Density (V^2/Hz)")
-                psd_axes[i].grid(True)
+		for i, signal_col in enumerate(self.selected_signals):
+			# Use _get_processed_data for computation (full data)
+			signal_data = self._get_processed_data(signal_col, full_data=True, time_start=start_t, time_end=end_t)
+			
+			# Compute PSD using Welch's method
+			# nperseg: length of each segment. A common choice is 256 or 512.
+			# fs: sampling frequency
+			try:
+				freqs = np.fft.rfftfreq(len(signal_data), d=1/sampling_freq)
+				fft = np.fft.rfft(signal_data - np.mean(signal_data))
+				psd = (np.abs(fft) ** 2) / (sampling_freq * len(signal_data))
+				# FIX: Use loglog for both axes logarithmic scale
+				psd_axes[i].loglog(freqs, psd, label="PSD data") # Changed from semilogy to loglog
+				psd_axes[i].set_title(f"PSD of {signal_col}")
+				psd_axes[i].set_xlabel("Frequency (Hz)")
+				psd_axes[i].set_ylabel("Power Spectral Density (V^2/Hz)")
+				psd_axes[i].grid(True)
 
-                # Lorenzian fit initial parameter guesses: [amplitude, center, fwhm]
-                p0 = [0.8, 50.2]#, 50.0] # Amplitude, Center frequency, FWHM
-                popt, pcov = curve_fit(lorentzian2, freqs, psd, p0=p0, method='lm', check_finite=True)
-                fitted_psd = lorentzian2(freqs, *popt)
-                psd_axes[i].loglog(freqs, fitted_psd, 'r--', label='Lorentzian Fit')
-                psd_axes[i].legend()
-                #psd_axes[i].annotate(f"Fit: A={popt[0]:.2e}, f0={popt[1]:.2f} Hz, FWHM={popt[2]:.2f} Hz",
-                #    xy=(0.05, 0.85), xycoords='axes fraction')
+				# Lorenzian fit initial parameter guesses: [amplitude, center, fwhm]
+				p0 = [0.8, 50.2]#, 50.0] # Amplitude, Center frequency, FWHM
+				popt, pcov = curve_fit(lorentzian2, freqs, psd, p0=p0, method='lm', check_finite=True)
+				fitted_psd = lorentzian2(freqs, *popt)
+				psd_axes[i].loglog(freqs, fitted_psd, 'r--', label='Lorentzian Fit')
+				psd_axes[i].legend()
+				#psd_axes[i].annotate(f"Fit: A={popt[0]:.2e}, f0={popt[1]:.2f} Hz, FWHM={popt[2]:.2f} Hz",
+				#    xy=(0.05, 0.85), xycoords='axes fraction')
 
-                thermal_parameters = Constants(fc=popt[1], A=popt[0])
-                self.constants = thermal_parameters # Store for later use in FPT window
+				thermal_parameters = Constants(fc=popt[1], A=popt[0])
+				self.constants = thermal_parameters # Store for later use in FPT window
 
                 psd_axes[i].annotate(f"Fit: A={popt[0]:.2e}, fc={popt[1]:.2f} Hz, fit R²={lorentzian_goodness_of_fit(freqs, psd, *popt):.4f}\nCalibration factor: {thermal_parameters.calib_nm_per_V:0.3f} nm/V\n Stiffness: {thermal_parameters.k_trap * 1e6:0.4f} pN/um",
                     xy=(0.05, 0.05), xycoords='axes fraction', fontsize=self.an_font_size)
@@ -908,12 +921,12 @@ class DataAnalyzerApp(tk.Tk):
                 messagebox.showerror("PSD Error", f"Could not compute PSD for {signal_col}: {e}")
                 psd_axes[i].set_title(f"PSD Error for {signal_col}")
 
-            # Store the last computed PSD data for saving
-            # This assumes we want to save the PSD of the first selected signal
-            if i == 0:
-                self.last_computed_freqs = freqs
-                self.last_computed_psd = psd
-                self.last_computed_signal_name = signal_col
+			# Store the last computed PSD data for saving
+			# This assumes we want to save the PSD of the first selected signal
+			if i == 0:
+				self.last_computed_freqs = freqs
+				self.last_computed_psd = psd
+				self.last_computed_signal_name = signal_col
 
         #psd_fig.tight_layout()
         # FIX: Make PSD window non-modal so user can interact with main GUI
@@ -922,32 +935,32 @@ class DataAnalyzerApp(tk.Tk):
         psd_canvas.draw() # Changed from plt.show() to plt.show(block=False)
         #plt.show(block=False)
 
-    def compute_histogram_and_plots(self):
-        """Compute and plot PDFs (histograms) of selected signals in the time window.
-        
-        Builds normalized histograms in physical units (nm), shows them on
-        linear and semilogarithmic plots, optionally computes variance and
-        trap stiffness for 'free' data, and stores histogram data for combined
-        plotting across files.
-        """
-        if self.data is None or not self.selected_signals or self.selected_time_range is None or self.selected_time_range[1] is None:
-            messagebox.showwarning("Selection Error", "Please load data, select signals, and define a time range first.")
-            return
+	def compute_histogram_and_plots(self):
+		"""Compute and plot PDFs (histograms) of selected signals in the time window.
+		
+		Builds normalized histograms in physical units (nm), shows them on
+		linear and semilogarithmic plots, optionally computes variance and
+		trap stiffness for 'free' data, and stores histogram data for combined
+		plotting across files.
+		"""
+		if self.data is None or not self.selected_signals or self.selected_time_range is None or self.selected_time_range[1] is None:
+			messagebox.showwarning("Selection Error", "Please load data, select signals, and define a time range first.")
+			return
 
-        start_t, end_t = sorted(self.selected_time_range)
-        
-        # Filter data for the selected time range
-        time_data = self.data[self.time_column].values
-        # Use original time data for computation
-        data_in_range_full = self.data[(time_data >= start_t) & (time_data <= end_t)]
+		start_t, end_t = sorted(self.selected_time_range)
+		
+		# Filter data for the selected time range
+		time_data = self.data[self.time_column].values
+		# Use original time data for computation
+		data_in_range_full = self.data[(time_data >= start_t) & (time_data <= end_t)]
 
-        if data_in_range_full.empty:
-            messagebox.showerror("Error", "No data found within the selected time range.")
-            return
+		if data_in_range_full.empty:
+			messagebox.showerror("Error", "No data found within the selected time range.")
+			return
 
-        # Calculate sampling frequency (important for PSD)
-        # Use the original time data to get a more stable sampling frequency estimate
-        sampling_freq = 1.0 / np.mean(np.diff(self.data[self.time_column].values))
+		# Calculate sampling frequency (important for PSD)
+		# Use the original time data to get a more stable sampling frequency estimate
+		sampling_freq = 1.0 / np.mean(np.diff(self.data[self.time_column].values))
 
         
         filename = self.file_path.get()
@@ -959,39 +972,39 @@ class DataAnalyzerApp(tk.Tk):
             hist_axes = [hist_axes]
 
 
-        # Define gaussian function for fitting
-        def gaussian(x, mu, sigma, A, B):
-            return A / (np.sqrt(2*np.pi) * sigma) * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + B
+		# Define gaussian function for fitting
+		def gaussian(x, mu, sigma, A, B):
+			return A / (np.sqrt(2*np.pi) * sigma) * np.exp(-0.5 * ((x - mu) / sigma) ** 2) + B
 
-        
-        for i, signal_col in enumerate(self.selected_signals):
-            # Use _get_processed_data for computation (full data)
-            signal_data = self._get_processed_data(signal_col, full_data=True, time_start=start_t, time_end=end_t)
-            
-            try:
-                # Histogram
-                hist, bin_edges = np.histogram(signal_data, bins=self.HIST_BINS, density=True)#, range=self.BIN_RANGE, density=True)
-                #modifying to get hist centered on 0
-                bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-                idx = np.argmax(hist)
-                bin_centers = bin_centers - bin_centers[idx] #centered on max
+		
+		for i, signal_col in enumerate(self.selected_signals):
+			# Use _get_processed_data for computation (full data)
+			signal_data = self._get_processed_data(signal_col, full_data=True, time_start=start_t, time_end=end_t)
+			
+			try:
+				# Histogram
+				hist, bin_edges = np.histogram(signal_data, bins=self.HIST_BINS, density=True)#, range=self.BIN_RANGE, density=True)
+				#modifying to get hist centered on 0
+				bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+				idx = np.argmax(hist)
+				bin_centers = bin_centers - bin_centers[idx] #centered on max
 
-                
+				
 
-                # normal histogram plot
-                hist_axes[i].plot(bin_centers, hist, label='PDF')
-                hist_axes[i].set_xlabel("Displacement (nm)")
-                hist_axes[i].set_ylabel("Probability Density")
-                hist_axes[i].set_title(f"PDF of {signal_col}: {filename}")
-                hist_axes[i].grid(True)
-                #hist_axes[i].set_xlim(self.BIN_RANGE)
+				# normal histogram plot
+				hist_axes[i].plot(bin_centers, hist, label='PDF')
+				hist_axes[i].set_xlabel("Displacement (nm)")
+				hist_axes[i].set_ylabel("Probability Density")
+				hist_axes[i].set_title(f"PDF of {signal_col}: {filename}")
+				hist_axes[i].grid(True)
+				#hist_axes[i].set_xlim(self.BIN_RANGE)
 
-                #perform fitting with gaussian
-                try:
-                    popt, pcov = curve_fit(gaussian, bin_centers, hist, p0=[0, 1, 10, 0])
-                    fitted_hist = gaussian(bin_centers, *popt)
-                    hist_axes[i].plot(bin_centers, fitted_hist, 'r--', label='Gaussian Fit')
-                    hist_axes[i].legend()
+				#perform fitting with gaussian
+				try:
+					popt, pcov = curve_fit(gaussian, bin_centers, hist, p0=[0, 1, 10, 0])
+					fitted_hist = gaussian(bin_centers, *popt)
+					hist_axes[i].plot(bin_centers, fitted_hist, 'r--', label='Gaussian Fit')
+					hist_axes[i].legend()
 
                     A = popt[2]
                     B = popt[3]
@@ -1006,15 +1019,15 @@ class DataAnalyzerApp(tk.Tk):
                 except Exception as e:
                     print(f"Gaussian fit failed for {signal_col}: {e}")
 
-                """ if 'free' in filename.lower():
-                    variance = np.var(signal_data)
-                    stiffness = self.K_BOLTZMANN / variance
-                    hist_axes[i].annotate(f"Variance: {variance:.2f} nm²\nk: {stiffness:.4f} pN/nm",
-                        xy=(0.05, 0.85), xycoords='axes fraction') """
+				""" if 'free' in filename.lower():
+					variance = np.var(signal_data)
+					stiffness = self.K_BOLTZMANN / variance
+					hist_axes[i].annotate(f"Variance: {variance:.2f} nm²\nk: {stiffness:.4f} pN/nm",
+						xy=(0.05, 0.85), xycoords='axes fraction') """
 
-            except Exception as e:
-                messagebox.showerror("Histogram Error", f"Could not compute histogram for {signal_col}: {e}")
-                hist_axes[i].set_title(f"Histogram Error for {signal_col}")
+			except Exception as e:
+				messagebox.showerror("Histogram Error", f"Could not compute histogram for {signal_col}: {e}")
+				hist_axes[i].set_title(f"Histogram Error for {signal_col}")
 
 
         #hist_fig.tight_layout()
@@ -1028,30 +1041,30 @@ class DataAnalyzerApp(tk.Tk):
         if len(self.selected_signals) == 1: # Ensure psd_axes is iterable even for one signal
             hist_axes = [hist_axes]
 
-        
-        for i, signal_col in enumerate(self.selected_signals):
-            # Use _get_processed_data for computation (full data)
-            signal_data = self._get_processed_data(signal_col, full_data=True, time_start=start_t, time_end=end_t)
-            
-            try:
-                # Histogram
-                #hist, bin_edges = np.histogram(signal_data, bins=self.HIST_BINS, range=self.BIN_RANGE, density=True)
-                hist, bin_edges = np.histogram(signal_data, bins=self.HIST_BINS,  density=True)
-                bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-                #modifying to get hist centered on 0
-                bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-                idx = np.argmax(hist)
-                bin_centers = bin_centers - bin_centers[idx] #centered on max
+		
+		for i, signal_col in enumerate(self.selected_signals):
+			# Use _get_processed_data for computation (full data)
+			signal_data = self._get_processed_data(signal_col, full_data=True, time_start=start_t, time_end=end_t)
+			
+			try:
+				# Histogram
+				#hist, bin_edges = np.histogram(signal_data, bins=self.HIST_BINS, range=self.BIN_RANGE, density=True)
+				hist, bin_edges = np.histogram(signal_data, bins=self.HIST_BINS,  density=True)
+				bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+				#modifying to get hist centered on 0
+				bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+				idx = np.argmax(hist)
+				bin_centers = bin_centers - bin_centers[idx] #centered on max
 
-                # normal histogram plot
-                hist_axes[i].semilogy(bin_centers, hist + 1e-10, label='PDF')
-                hist_axes[i].set_xlabel("Displacement (nm)")
-                hist_axes[i].set_ylabel("Probability Density")
-                hist_axes[i].set_title(f"PDF of {signal_col}: {filename}")
-                hist_axes[i].grid(True)
-                #hist_axes[i].set_xlim(self.BIN_RANGE)
+				# normal histogram plot
+				hist_axes[i].semilogy(bin_centers, hist + 1e-10, label='PDF')
+				hist_axes[i].set_xlabel("Displacement (nm)")
+				hist_axes[i].set_ylabel("Probability Density")
+				hist_axes[i].set_title(f"PDF of {signal_col}: {filename}")
+				hist_axes[i].grid(True)
+				#hist_axes[i].set_xlim(self.BIN_RANGE)
 
-                if 'free' in filename.lower():
+				if 'free' in filename.lower():
 
                     variance = np.var(signal_data)
                     stiffness = self.K_BOLTZMANN / variance
@@ -1067,29 +1080,29 @@ class DataAnalyzerApp(tk.Tk):
                         "filename": filename
                     })
 
-            except Exception as e:
-                messagebox.showerror("Histogram Error", f"Could not compute histogram for {signal_col}: {e}")
-                hist_axes[i].set_title(f"Histogram Error for {signal_col}")
+			except Exception as e:
+				messagebox.showerror("Histogram Error", f"Could not compute histogram for {signal_col}: {e}")
+				hist_axes[i].set_title(f"Histogram Error for {signal_col}")
 
 
-            
+			
 
 
         #hist_fig.tight_layout()
         # FIX: Make PSD window non-modal so user can interact with main GUI
         hist_canvas.draw() # Changed from plt.show() to plt.show(block=False)
 
-    
-    def plot_combined_pdf(self):
-        """Plot a combined PDF from histogram data collected across multiple files.
-        
-        Overlays all stored PDFs in a single figure for visual comparison.
-        """
-        if len(self.data_list) < 2:
-            return
-        else:
-            n_files = len(self.data_list)
-        
+	
+	def plot_combined_pdf(self):
+		"""Plot a combined PDF from histogram data collected across multiple files.
+		
+		Overlays all stored PDFs in a single figure for visual comparison.
+		"""
+		if len(self.data_list) < 2:
+			return
+		else:
+			n_files = len(self.data_list)
+		
 
          # Create a new figure for log log PDF plots
         #hist_fig, hist_axes = plt.subplots(1, 1, figsize=(8, 3))
@@ -1097,129 +1110,129 @@ class DataAnalyzerApp(tk.Tk):
         for data in self.data_list:
             hist_axes.plot(data["bins"], data["hist"], label=data["label"])
 
-        hist_axes.set_xlabel("Displacement (nm)")
-        hist_axes.set_ylabel("Probability Density")
-        hist_axes.set_title("Combined Log PDF")
-        hist_axes.set_xlim(self.BIN_RANGE)
-        hist_axes.grid(True, which="both")
-        hist_axes.legend()
-        #plt.savefig(os.path.join(output_dir, "combined_log_pdf.png"), dpi=300)
-        #plt.close()
+		hist_axes.set_xlabel("Displacement (nm)")
+		hist_axes.set_ylabel("Probability Density")
+		hist_axes.set_title("Combined Log PDF")
+		hist_axes.set_xlim(self.BIN_RANGE)
+		hist_axes.grid(True, which="both")
+		hist_axes.legend()
+		#plt.savefig(os.path.join(output_dir, "combined_log_pdf.png"), dpi=300)
+		#plt.close()
 
         #hist_fig.tight_layout()
         hist_canvas.draw() # Changed from plt.show() to plt.show(block=False)
 
-    def save_selected_data(self):
-        """Save the selected time window of the chosen signals to a CSV file."""
-        if self.data is None or not self.selected_signals or self.selected_time_range is None or self.selected_time_range[1] is None:
-            messagebox.showwarning("Selection Error", "Please load data, select signals, and define a time range first.")
-            return
+	def save_selected_data(self):
+		"""Save the selected time window of the chosen signals to a CSV file."""
+		if self.data is None or not self.selected_signals or self.selected_time_range is None or self.selected_time_range[1] is None:
+			messagebox.showwarning("Selection Error", "Please load data, select signals, and define a time range first.")
+			return
 
-        start_t, end_t = sorted(self.selected_time_range)
-        
-        # Filter data for the selected time range
-        time_data = self.data[self.time_column].values
-        data_to_save_dict = {self.time_column: time_data[(time_data >= start_t) & (time_data <= end_t)]}
+		start_t, end_t = sorted(self.selected_time_range)
+		
+		# Filter data for the selected time range
+		time_data = self.data[self.time_column].values
+		data_to_save_dict = {self.time_column: time_data[(time_data >= start_t) & (time_data <= end_t)]}
 
-        for signal_col in self.selected_signals:
-            # Use _get_processed_data for saving (full data)
-            processed_signal_data = self._get_processed_data(signal_col, full_data=True, time_start=start_t, time_end=end_t)
-            data_to_save_dict[signal_col] = processed_signal_data
+		for signal_col in self.selected_signals:
+			# Use _get_processed_data for saving (full data)
+			processed_signal_data = self._get_processed_data(signal_col, full_data=True, time_start=start_t, time_end=end_t)
+			data_to_save_dict[signal_col] = processed_signal_data
 
-        data_to_save = pd.DataFrame(data_to_save_dict)
+		data_to_save = pd.DataFrame(data_to_save_dict)
 
-        if data_to_save.empty:
-            messagebox.showerror("Error", "No data found within the selected time range.")
-            return
+		if data_to_save.empty:
+			messagebox.showerror("Error", "No data found within the selected time range.")
+			return
 
-        # Prompt user for save location and filename
-        save_path = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            filetypes=(("CSV files", "*.csv"), ("All files", "*.*")),
-            title="Save Selected Data As"
-        )
+		# Prompt user for save location and filename
+		save_path = filedialog.asksaveasfilename(
+			defaultextension=".csv",
+			filetypes=(("CSV files", "*.csv"), ("All files", "*.*")),
+			title="Save Selected Data As"
+		)
 
-        if save_path:
-            try:
-                data_to_save.to_csv(save_path, index=False)
-                messagebox.showinfo("Success", f"Selected data saved to {save_path}")
-            except Exception as e:
-                messagebox.showerror("Save Error", f"Failed to save data: {e}")
+		if save_path:
+			try:
+				data_to_save.to_csv(save_path, index=False)
+				messagebox.showinfo("Success", f"Selected data saved to {save_path}")
+			except Exception as e:
+				messagebox.showerror("Save Error", f"Failed to save data: {e}")
 
-    def save_psd_data(self):
-        """Save the last computed PSD (first selected signal) to a CSV file."""
-        if self.last_computed_freqs is None or self.last_computed_psd is None:
-            messagebox.showwarning("No PSD Data", "Please compute PSD first.")
-            return
+	def save_psd_data(self):
+		"""Save the last computed PSD (first selected signal) to a CSV file."""
+		if self.last_computed_freqs is None or self.last_computed_psd is None:
+			messagebox.showwarning("No PSD Data", "Please compute PSD first.")
+			return
 
-        save_path = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            filetypes=(("CSV files", "*.csv"), ("All files", "*.*")),
-            title="Save PSD Data As"
-        )
+		save_path = filedialog.asksaveasfilename(
+			defaultextension=".csv",
+			filetypes=(("CSV files", "*.csv"), ("All files", "*.*")),
+			title="Save PSD Data As"
+		)
 
-        if save_path:
-            try:
-                psd_data = pd.DataFrame({
-                    'Frequency (Hz)': self.last_computed_freqs,
-                    f'PSD ({self.last_computed_signal_name})': self.last_computed_psd
-                })
-                psd_data.to_csv(save_path, index=False)
-                messagebox.showinfo("Success", f"PSD data saved to {save_path}")
-            except Exception as e:
-                messagebox.showerror("Save Error", f"Failed to save PSD data: {e}")
+		if save_path:
+			try:
+				psd_data = pd.DataFrame({
+					'Frequency (Hz)': self.last_computed_freqs,
+					f'PSD ({self.last_computed_signal_name})': self.last_computed_psd
+				})
+				psd_data.to_csv(save_path, index=False)
+				messagebox.showinfo("Success", f"PSD data saved to {save_path}")
+			except Exception as e:
+				messagebox.showerror("Save Error", f"Failed to save PSD data: {e}")
 
-    def autocorrelation_at_lag(x, lag):
-        """
-        Compute autocorrelation of a 1D NumPy array at a specific lag.
-        
-        Parameters:
-            x (array-like): Input time series data.
-            lag (int): The lag at which to compute autocorrelation (>= 0).
-        
-        Returns:
-            float: Autocorrelation value at the given lag.
-        """
-        # Convert to NumPy array and validate
-        #x = np.asarray(x, dtype=float)
-        n = len(x)
-        if lag < 0 or lag >= n:
-            raise ValueError("Lag must be between 0 and len(x)-1")
-        
-        # Remove mean for unbiased correlation
-        x_mean = np.mean(x)
-        x_centered = x - x_mean
-        
-        # Numerator: dot product of shifted series
-        numerator = np.dot(x_centered[:n - lag], x_centered[lag:])
-        
-        # Denominator: variance * number of terms
-        denominator = np.dot(x_centered, x_centered)
-    
-        return numerator / denominator
+	def autocorrelation_at_lag(x, lag):
+		"""
+		Compute autocorrelation of a 1D NumPy array at a specific lag.
+		
+		Parameters:
+			x (array-like): Input time series data.
+			lag (int): The lag at which to compute autocorrelation (>= 0).
+		
+		Returns:
+			float: Autocorrelation value at the given lag.
+		"""
+		# Convert to NumPy array and validate
+		#x = np.asarray(x, dtype=float)
+		n = len(x)
+		if lag < 0 or lag >= n:
+			raise ValueError("Lag must be between 0 and len(x)-1")
+		
+		# Remove mean for unbiased correlation
+		x_mean = np.mean(x)
+		x_centered = x - x_mean
+		
+		# Numerator: dot product of shifted series
+		numerator = np.dot(x_centered[:n - lag], x_centered[lag:])
+		
+		# Denominator: variance * number of terms
+		denominator = np.dot(x_centered, x_centered)
+	
+		return numerator / denominator
 
-    def compute_autocorrelation_data(self:Self):
-        """Compute and plot the autocorrelation of the selected signals over the chosen time range.
-        
-        Uses numpy.correlate() to compute the autocorrelation for each selected signal,
-        creates a new figure with the autocorrelation curves.
-        """
-        if self.data is None or not self.selected_signals or self.selected_time_range is None or self.selected_time_range[1] is None:
-            messagebox.showwarning("Selection Error", "Please load data, select signals, and define a time range first.")
-            return
+	def compute_autocorrelation_data(self:Self):
+		"""Compute and plot the autocorrelation of the selected signals over the chosen time range.
+		
+		Uses numpy.correlate() to compute the autocorrelation for each selected signal,
+		creates a new figure with the autocorrelation curves.
+		"""
+		if self.data is None or not self.selected_signals or self.selected_time_range is None or self.selected_time_range[1] is None:
+			messagebox.showwarning("Selection Error", "Please load data, select signals, and define a time range first.")
+			return
 
-        start_t, end_t = sorted(self.selected_time_range)
-        
-        # Filter data for the selected time range
-        time_data = self.data[self.time_column].values
-        
-        dt = np.mean(np.diff(self.data[self.time_column].values))
-        # Use original time data for computation
-        data_in_range_full = self.data[(time_data >= start_t) & (time_data <= end_t)]
+		start_t, end_t = sorted(self.selected_time_range)
+		
+		# Filter data for the selected time range
+		time_data = self.data[self.time_column].values
+		
+		dt = np.mean(np.diff(self.data[self.time_column].values))
+		# Use original time data for computation
+		data_in_range_full = self.data[(time_data >= start_t) & (time_data <= end_t)]
 
-        if data_in_range_full.empty:
-            messagebox.showerror("Error", "No data found within the selected time range.")
-            return
+		if data_in_range_full.empty:
+			messagebox.showerror("Error", "No data found within the selected time range.")
+			return
 
         # Create a new figure for autocorrelation plots
         #acor_fig, acor_axes = plt.subplots(len(self.selected_signals), 1, figsize=(8, 3 * len(self.selected_signals)))
@@ -1227,77 +1240,77 @@ class DataAnalyzerApp(tk.Tk):
         if len(self.selected_signals) == 1: # Ensure acor_axes is iterable even for one signal
             acor_axes = [acor_axes]
 
-        window_duration = 2.0 # seconds
-        n_windows = 20
+		window_duration = 2.0 # seconds
+		n_windows = 20
 
-        window_size = int(window_duration / dt)
-        n = window_size
-        max_lag = (0.25 / dt).astype(int)
-        #small_max_lag = (0.15 / dt).astype(int)
-        autocorr_data = np.zeros((n_windows, max_lag))
-        relaxation_time = np.zeros(n_windows)
+		window_size = int(window_duration / dt)
+		n = window_size
+		max_lag = (0.25 / dt).astype(int)
+		#small_max_lag = (0.15 / dt).astype(int)
+		autocorr_data = np.zeros((n_windows, max_lag))
+		relaxation_time = np.zeros(n_windows)
 
-        def exponential_decay(x, tau, a):
-            return (1-a)*np.exp(-x / tau) + a # shifted exponential
-        
-        def exponential_decay_no_shift(x, tau):
-            return np.exp(-x / tau)
-        
-        #self.start_profiling() # Start profiling before the loop to capture performance of the entire computation
+		def exponential_decay(x, tau, a):
+			return (1-a)*np.exp(-x / tau) + a # shifted exponential
+		
+		def exponential_decay_no_shift(x, tau):
+			return np.exp(-x / tau)
+		
+		#self.start_profiling() # Start profiling before the loop to capture performance of the entire computation
 
-        for i, signal_col in enumerate(self.selected_signals):
-            # Use _get_processed_data for computation (full data)
-            signal_data = self._get_processed_data(signal_col, full_data=True)#, time_start=start_t, time_end=end_t)
-            for current_window_idx in range(n_windows):
-                start_time = np.random.uniform(start_t, end_t - window_duration)
-                start_idx = np.searchsorted(time_data, start_time)
-                end_idx = start_idx + window_size
+		for i, signal_col in enumerate(self.selected_signals):
+			# Use _get_processed_data for computation (full data)
+			signal_data = self._get_processed_data(signal_col, full_data=True)#, time_start=start_t, time_end=end_t)
+			for current_window_idx in range(n_windows):
+				start_time = np.random.uniform(start_t, end_t - window_duration)
+				start_idx = np.searchsorted(time_data, start_time)
+				end_idx = start_idx + window_size
 
-                if end_idx <= len(signal_data):
-                    window_data = signal_data[start_idx:end_idx]
+				if end_idx <= len(signal_data):
+					window_data = signal_data[start_idx:end_idx]
 
-                    try:
-                        # Compute unbiased autocorrelation
-                        yunbiased = window_data - np.mean(window_data)
-                        #yunbiased = detrend(yunbiased, type='linear')
-                        ynorm = np.sum(yunbiased**2)
+					try:
+						# Compute unbiased autocorrelation
+						yunbiased = window_data - np.mean(window_data)
+						#yunbiased = detrend(yunbiased, type='linear')
+						ynorm = np.sum(yunbiased**2)
 
-                        #acor = np.correlate(yunbiased, yunbiased, "same") / ynorm
-                        #windows = sliding_window_view(yunbiased, n - np.arange(max_lag))
+						#acor = np.correlate(yunbiased, yunbiased, "same") / ynorm
+						#windows = sliding_window_view(yunbiased, n - np.arange(max_lag))
 
-                        acor = [np.dot(yunbiased[:n - lag], yunbiased[lag:]) / ynorm for lag in range(max_lag)]
-                        autocorr_data[current_window_idx, :] = np.array(acor)
+						acor = [np.dot(yunbiased[:n - lag], yunbiased[lag:]) / ynorm for lag in range(max_lag)]
+						autocorr_data[current_window_idx, :] = np.array(acor)
 
-                        relaxation_time[current_window_idx] = dt * np.sum(acor)
+						relaxation_time[current_window_idx] = dt * np.sum(acor)
 
-                    except Exception as e:
-                        messagebox.showerror("Autocorrelation Error", f"Could not compute autocorrelation for {signal_col}: {e}")
+					except Exception as e:
+						messagebox.showerror("Autocorrelation Error", f"Could not compute autocorrelation for {signal_col}: {e}")
 
-            # Average over windows
-            acor = np.mean(autocorr_data, axis=0)
-            total_points = len(acor)
-            small_lag_points = total_points
-            ts = np.arange(total_points) *  dt # time lags based on original sampling rate
-            thermal_relaxation_time = np.mean(relaxation_time) #first mode of compute relaxation time
+			# Average over windows
+			acor = np.mean(autocorr_data, axis=0)
+			total_points = len(acor)
+			small_lag_points = total_points
+			ts = np.arange(total_points) *  dt # time lags based on original sampling rate
+			thermal_relaxation_time = np.mean(relaxation_time) #first mode of compute relaxation time
 
-            #second mode: fitting exponential decay
-            try:   
-                """ popt, pcov = curve_fit(exponential_decay, ts, acor, p0=[thermal_relaxation_time, 0.0])
-                fitted_acor = exponential_decay(ts, *popt)
-                acor_axes[i].plot(ts, fitted_acor, 'r--', label='Exp Fit')
-                thermal_relaxation_time_by_fit = popt[0]
-                acor_axes[i].annotate(f"Relaxation time {thermal_relaxation_time_by_fit:.4f} s, tail value {popt[1]:.4f}", xy=(0.05, 0.75), xycoords='axes fraction') """
+			#second mode: fitting exponential decay
+			try:   
+				""" popt, pcov = curve_fit(exponential_decay, ts, acor, p0=[thermal_relaxation_time, 0.0])
+				fitted_acor = exponential_decay(ts, *popt)
+				acor_axes[i].plot(ts, fitted_acor, 'r--', label='Exp Fit')
+				thermal_relaxation_time_by_fit = popt[0]
+				acor_axes[i].annotate(f"Relaxation time {thermal_relaxation_time_by_fit:.4f} s, tail value {popt[1]:.4f}", xy=(0.05, 0.75), xycoords='axes fraction') """
 
-                #perform a fit only on the small lag part
-                popt, pcov = curve_fit(exponential_decay_no_shift, ts[:small_lag_points], acor[:small_lag_points], p0=[thermal_relaxation_time])
-                fitted_acor = exponential_decay_no_shift(ts[:small_lag_points], *popt) 
-                #plot the small lag fit and annotate new parameters
-                acor_axes[i].plot(ts[:small_lag_points], fitted_acor, 'r--', label='Exp Fit (small lag)')
-                thermal_relaxation_time_by_fit = popt[0]
-                ct = self.constants
-                acor_axes[i].annotate(f"Relaxation time {thermal_relaxation_time_by_fit:.4f} s, stiffness {ct.gamma / (thermal_relaxation_time_by_fit) * 1e6:.4f} pN/um", xy=(0.05, 0.45), xycoords='axes fraction') 
-            except Exception as e:
-                print(f"Exponential fit failed for {signal_col}: {e}")
+				#perform a fit only on the small lag part
+				popt, pcov = curve_fit(exponential_decay_no_shift, ts[:small_lag_points], acor[:small_lag_points], p0=[thermal_relaxation_time])
+				fitted_acor = exponential_decay_no_shift(ts[:small_lag_points], *popt) 
+				#plot the small lag fit and annotate new parameters
+				acor_axes[i].plot(ts[:small_lag_points], fitted_acor, 'r--', label='Exp Fit (small lag)')
+				thermal_relaxation_time_by_fit = popt[0]
+				ct = self.constants
+				acor_axes[i].annotate(f"Relaxation time {thermal_relaxation_time_by_fit:.4f} s, stiffness {ct.gamma / (thermal_relaxation_time_by_fit) * 1e6:.4f} pN/um", xy=(0.05, 0.45), xycoords='axes fraction') 
+			except Exception as e:
+				print(f"Exponential fit failed for {signal_col}: {e}")
 
             acor_axes[i].plot(ts,acor)
             acor_axes[i].set_title(f"Autocorrelation of {signal_col}")
@@ -1307,114 +1320,115 @@ class DataAnalyzerApp(tk.Tk):
             acor_axes[i].grid(True)
 
 
-        #self.stop_profiling() # Stop profiling after the loop to capture performance of the entire computation
+		#self.stop_profiling() # Stop profiling after the loop to capture performance of the entire computation
 
         acor_fig.tight_layout()
         self.plot_selected_signals() # Refresh main plot to ensure interactivity
         acor_canvas.draw() # Changed from plt.show() to plt.show(block=False)
 
-    def start_profiling(self):
-        """Start the cProfile profiler to analyze performance of the application."""
-        self.profiler.enable()
+	def start_profiling(self):
+		"""Start the cProfile profiler to analyze performance of the application."""
+		self.profiler.enable()
 
-    def stop_profiling(self):
-        """Stop the cProfile profiler and print the top 10 cumulative time functions."""
-        self.profiler.disable()
-        s = io.StringIO()
-        pr_stats = pstats.Stats(self.profiler, stream=s).sort_stats(pstats.SortKey.CUMULATIVE, pstats.SortKey.TIME)
-        pr_stats.print_stats(10)   
-        print(s.getvalue())
+	def stop_profiling(self):
+		"""Stop the cProfile profiler and print the top 10 cumulative time functions."""
+		self.profiler.disable()
+		s = io.StringIO()
+		pr_stats = pstats.Stats(self.profiler, stream=s).sort_stats(pstats.SortKey.CUMULATIVE, pstats.SortKey.TIME)
+		pr_stats.print_stats(10)   
+		print(s.getvalue())
 
-    def variance_random_window(self):
-        """Here we calculate the variance by taking random windows of time from the preprocessed signal and time selection
-        and averaging the variance over those windows.
-        """
-        if self.data is None or not self.selected_signals:
-            messagebox.showwarning("Selection Error", "Please load data and select signals first.")
-            return
+	def variance_random_window(self):
+		"""Here we calculate the variance by taking random windows of time from the preprocessed signal and time selection
+		and averaging the variance over those windows.
+		"""
+		if self.data is None or not self.selected_signals:
+			messagebox.showwarning("Selection Error", "Please load data and select signals first.")
+			return
 
-        window_duration = 2.0 # seconds
-        n_windows = 20
+		window_duration = 2.0 # seconds
+		n_windows = 20
 
-        results = []
-        time_data = self.data[self.time_column].values
-        total_duration = time_data[-1] - time_data[0]
-        window_size = int(window_duration / np.mean(np.diff(time_data)))
-        start_t, end_t = sorted(self.selected_time_range)
+		results = []
+		time_data = self.data[self.time_column].values
+		total_duration = time_data[-1] - time_data[0]
+		window_size = int(window_duration / np.mean(np.diff(time_data)))
+		start_t, end_t = sorted(self.selected_time_range)
 
-        # Calculate sampling frequency (important for PSD)
-        # Use the original time data to get a more stable sampling frequency estimate
-        sampling_freq = 1.0 / np.mean(np.diff(self.data[self.time_column].values))
+		# Calculate sampling frequency (important for PSD)
+		# Use the original time data to get a more stable sampling frequency estimate
+		sampling_freq = 1.0 / np.mean(np.diff(self.data[self.time_column].values))
 
-        # Initial parameter guesses: [amplitude, center, fwhm]
-        p0 = [0.8, 5.2, 0.15]
+		# Initial parameter guesses: [amplitude, center, fwhm]
+		p0 = [0.8, 5.2, 0.15]
 
-        for signal_col in self.selected_signals:
-            signal_data = self._get_processed_data(signal_col, full_data=True)
+		for signal_col in self.selected_signals:
+			signal_data = self._get_processed_data(signal_col, full_data=True)
 
-            variances = []
-            for _ in range(n_windows):
-                start_time = np.random.uniform(start_t, end_t - window_duration)
-                start_idx = np.searchsorted(time_data, start_time)
-                end_idx = start_idx + window_size
-                if end_idx <= len(signal_data):
-                    window_data = signal_data[start_idx:end_idx]
-                    variances.append(np.var(window_data))
+			variances = []
+			for _ in range(n_windows):
+				start_time = np.random.uniform(start_t, end_t - window_duration)
+				start_idx = np.searchsorted(time_data, start_time)
+				end_idx = start_idx + window_size
+				if end_idx <= len(signal_data):
+					window_data = signal_data[start_idx:end_idx]
+					variances.append(np.var(window_data))
 
-                    # on window_data we compute also the psd
-                    freqs, psd = welch(window_data, fs=sampling_freq, nperseg=1024) # Increased nperseg for better resolution
+					# on window_data we compute also the psd
+					freqs, psd = welch(window_data, fs=sampling_freq, nperseg=1024) # Increased nperseg for better resolution
 
-                    # Fit the data
-                    #popt, pcov = curve_fit(lorentzian, freqs, psd, p0=p0)
+					# Fit the data
+					#popt, pcov = curve_fit(lorentzian, freqs, psd, p0=p0)
 
-            avg_variance = np.mean(variances) if variances else None
-            std_variance = np.std(variances) if variances else None
-            results.append((signal_col, avg_variance, std_variance))
+			avg_variance = np.mean(variances) if variances else None
+			std_variance = np.std(variances) if variances else None
+			results.append((signal_col, avg_variance, std_variance))
 
-        ct = self.constants
+		ct = self.constants
 
-        result_str = "\n".join([f"{col}: Variance = {var:.4f}+-{std:.4f}, stiffness = {ct.k_B * ct.T / var * 1e24:.02f} pN/um" for col, var, std in results if var is not None])
-        messagebox.showinfo("Variance Results", result_str)
+		result_str = "\n".join([f"{col}: Variance = {var:.4f}+-{std:.4f}, stiffness = {ct.k_B * ct.T / var * 1e24:.02f} pN/um" for col, var, std in results if var is not None])
+		messagebox.showinfo("Variance Results", result_str)
 
-    
-    def write_fake_gaussian_noise_to_csv(self, signal_col="AI3", duration_s=100.0):
-        """Generate Gaussian random data and save it to a CSV file."""
-        ct = self.constants
-        (_, random_data, _) = ct.simulate_optical_trap(duration_s=duration_s, fs=1/np.mean(np.diff(self.data[self.time_column].values)))
-        if random_data is not None:
-            save_path = filedialog.asksaveasfilename(
-                defaultextension=".csv",
-                filetypes=(("CSV files", "*.csv"), ("All files", "*.*")),
-                title="Save Gaussian Noise Data As"
-            )
-            if save_path:
-                try:
-                    d = self.data
-                    temp_data = d[d['Time (s)']<duration_s].copy() # Copy the time column
-                    temp_data[signal_col] = random_data
-                    temp_data.to_csv(save_path, index=False, sep='\t')
-                    messagebox.showinfo("Success", f"Gaussian noise data saved to {save_path}")
-                except Exception as e:
-                    messagebox.showerror("Save Error", f"Failed to save Gaussian noise data: {e}")
+	
+	def write_fake_gaussian_noise_to_csv(self, signal_col="AI3", duration_s=100.0):
+		"""Generate Gaussian random data and save it to a CSV file."""
+		ct = self.constants
+		(_, random_data, _) = ct.simulate_optical_trap(duration_s=duration_s, fs=1/np.mean(np.diff(self.data[self.time_column].values)))
+		if random_data is not None:
+			save_path = filedialog.asksaveasfilename(
+				defaultextension=".csv",
+				filetypes=(("CSV files", "*.csv"), ("All files", "*.*")),
+				title="Save Gaussian Noise Data As"
+			)
+			if save_path:
+				try:
+					d = self.data
+					temp_data = d[d['Time (s)']<duration_s].copy() # Copy the time column
+					temp_data[signal_col] = random_data
+					temp_data.to_csv(save_path, index=False, sep='\t')
+					messagebox.showinfo("Success", f"Gaussian noise data saved to {save_path}")
+				except Exception as e:
+					messagebox.showerror("Save Error", f"Failed to save Gaussian noise data: {e}")
 
-    def open_fpt_window(self:Self):
-        """Open a new window for First Passage Time (FPT) analysis."""
-        if isinstance(self.selected_signals, list) and len(self.selected_signals) > 0 and self.selected_time_range and self.selected_time_range[1] is not None:
-            time_data = self.data[self.time_column].values
-            time_data = time_data[(time_data >= self.selected_time_range[0]) & (time_data <= self.selected_time_range[1])]
-            signal_data = self._get_processed_data(self.selected_signals[0], full_data=True, time_start=self.selected_time_range[0], time_end=self.selected_time_range[1])
-        else:
-            messagebox.showwarning("Selection Error", "Please select at least one signal for FPT analysis.")
-            return
-        
-        from data_fpt_processing import DataAnalyzerFptWindow
-        fpt_window = DataAnalyzerFptWindow(self, time_data, signal_data, constants=self.constants)
+	def open_fpt_window(self:Self):
+		"""Open a new window for First Passage Time (FPT) analysis."""
+		if isinstance(self.selected_signals, list) and len(self.selected_signals) > 0 and self.selected_time_range and self.selected_time_range[1] is not None:
+			time_data = self.data[self.time_column].values
+			time_data = time_data[(time_data >= self.selected_time_range[0]) & (time_data <= self.selected_time_range[1])]
+			signal_data = self._get_processed_data(self.selected_signals[0], full_data=True, time_start=self.selected_time_range[0], time_end=self.selected_time_range[1])
+		else:
+			messagebox.showwarning("Selection Error", "Please select at least one signal for FPT analysis.")
+			return
+		
+		from data_fpt_processing import DataAnalyzerFptWindow
+		self.constants.cf = self.cf_var.get()
+		fpt_window = DataAnalyzerFptWindow(self, time_data, signal_data, constants=self.constants)
 
 def main():
-    """Entry point for running the DataAnalyzerApp as a standalone GUI program."""
-    #root = tk.Tk()
-    app = DataAnalyzerApp()
-    app.mainloop()
+	"""Entry point for running the DataAnalyzerApp as a standalone GUI program."""
+	#root = tk.Tk()
+	app = DataAnalyzerApp()
+	app.mainloop()
 
 if __name__ == "__main__":
-    main()
+	main()
