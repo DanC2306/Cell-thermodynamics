@@ -24,12 +24,13 @@ import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.figure import Figure
 #from numba import njit
 from scipy.signal import welch, detrend, savgol_filter # For PSD calculation and detrending
 from scipy.optimize import curve_fit
 import matplotlib.patches as patches # Import patches for Rectangle type checking
 from functools import cache
-from typing import Self
+from typing import Self, Tuple
 
 # for profiling purposes
 import cProfile
@@ -151,6 +152,7 @@ class DataAnalyzerApp(tk.Tk):
         #self.root = root
         self.title("Data Analyzer")
         self.geometry("1400x1024")
+        self.an_font_size = 20
 
         self.data = None
         self.time_column = None
@@ -463,7 +465,7 @@ class DataAnalyzerApp(tk.Tk):
                 "AI7" : "laser current",
                 }
             for i, col in enumerate(self.signal_columns):
-                self.signal_listbox.insert(tk.END, f"{col} ({suggestions[col]})")
+                self.signal_listbox.insert(tk.END, f"{col}")# ({suggestions[col]})")
                 # Pre-select ONLY the first channel by default
                 if i == 0: # Changed from i < 7 to i == 0
                     self.signal_listbox.selection_set(i)
@@ -788,6 +790,38 @@ class DataAnalyzerApp(tk.Tk):
         self.selected_time_range = None
         self.fig.canvas.draw_idle()
 
+    def create_plot_window(self, parent, fig_title="Analisi PSD", figsize=(6, 4), **kwargs):
+        """
+        Crea una finestra Toplevel non modale con un canvas Matplotlib integrato.
+        Restituisce la Figure e gli Axes.
+        """
+        # 1. Creazione della finestra Toplevel
+        new_window = tk.Toplevel(parent)
+        new_window.title(fig_title)
+        
+        # 2. Istanza della Figure (evitiamo plt.subplots per non usare il backend globale)
+        # Passiamo figsize e altri parametri come nrows, ncols tramite kwargs
+        fig = Figure(figsize=figsize, layout="constrained")
+        
+        # Se vuoi supportare nrows/ncols come in plt.subplots:
+        nrows = kwargs.get('nrows', 1)
+        ncols = kwargs.get('ncols', 1)
+
+        ax = fig.subplots(nrows=nrows, ncols=ncols)
+
+        # 3. Integrazione nel Canvas di Tkinter
+        canvas = FigureCanvasTkAgg(fig, master=new_window)
+        canvas_widget = canvas.get_tk_widget()
+        canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        # 4. Aggiunta della Toolbar (opzionale ma fondamentale per zoom/save)
+        toolbar = NavigationToolbar2Tk(canvas, new_window)
+        toolbar.update()
+        
+        # Restituiamo fig e ax per poterli manipolare all'esterno
+        # Restituiamo anche il canvas perché servirà chiamare canvas.draw() dopo le modifiche
+        return fig, ax, canvas
+
     # --- Action Functions ---
     def compute_psd(self):
         """Compute and display PSD for selected signals over the chosen time range.
@@ -816,7 +850,8 @@ class DataAnalyzerApp(tk.Tk):
         sampling_freq = 1.0 / np.mean(np.diff(self.data[self.time_column].values))
         
         # Create a new figure for PSD plots
-        psd_fig, psd_axes = plt.subplots(len(self.selected_signals), 1, figsize=(8, 3 * len(self.selected_signals)))
+        #psd_fig, psd_axes = plt.subplots(len(self.selected_signals), 1, figsize=(8, 3 * len(self.selected_signals)))
+        psd_fig, psd_axes, psd_canvas = self.create_plot_window(self, nrows=len(self.selected_signals), ncols=1, fig_title="Risultati PSD", figsize=(8, 3 * len(self.selected_signals)))
         if len(self.selected_signals) == 1: # Ensure psd_axes is iterable even for one signal
             psd_axes = [psd_axes]
 
@@ -868,7 +903,7 @@ class DataAnalyzerApp(tk.Tk):
                 self.constants = thermal_parameters # Store for later use in FPT window
 
                 psd_axes[i].annotate(f"Fit: A={popt[0]:.2e}, fc={popt[1]:.2f} Hz, fit R²={lorentzian_goodness_of_fit(freqs, psd, *popt):.4f}\nCalibration factor: {thermal_parameters.calib_nm_per_V:0.3f} nm/V\n Stiffness: {thermal_parameters.k_trap * 1e6:0.4f} pN/um",
-                    xy=(0.05, 0.05), xycoords='axes fraction')
+                    xy=(0.05, 0.05), xycoords='axes fraction', fontsize=self.an_font_size)
             except Exception as e:
                 messagebox.showerror("PSD Error", f"Could not compute PSD for {signal_col}: {e}")
                 psd_axes[i].set_title(f"PSD Error for {signal_col}")
@@ -880,11 +915,12 @@ class DataAnalyzerApp(tk.Tk):
                 self.last_computed_psd = psd
                 self.last_computed_signal_name = signal_col
 
-        psd_fig.tight_layout()
+        #psd_fig.tight_layout()
         # FIX: Make PSD window non-modal so user can interact with main GUI
         #plt.show(block=False) # Changed from plt.show() to plt.show(block=False)
         self.plot_selected_signals() # Refresh main plot to ensure interactivity
-        psd_fig.show() # Changed from plt.show() to plt.show(block=False)
+        psd_canvas.draw() # Changed from plt.show() to plt.show(block=False)
+        #plt.show(block=False)
 
     def compute_histogram_and_plots(self):
         """Compute and plot PDFs (histograms) of selected signals in the time window.
@@ -913,12 +949,15 @@ class DataAnalyzerApp(tk.Tk):
         # Use the original time data to get a more stable sampling frequency estimate
         sampling_freq = 1.0 / np.mean(np.diff(self.data[self.time_column].values))
 
+        
+        filename = self.file_path.get()
+
         # Create a new figure for PDF plots
-        hist_fig, hist_axes = plt.subplots(len(self.selected_signals), 1, figsize=(8, 3 * len(self.selected_signals)))
+        #hist_fig, hist_axes = plt.subplots(len(self.selected_signals), 1, figsize=(8, 3 * len(self.selected_signals)))
+        hist_fig, hist_axes, hist_canvas = self.create_plot_window(self, fig_title=f"PDF of {filename}" , nrows=len(self.selected_signals), ncols=1, figsize=(8, 3 * len(self.selected_signals)))
         if len(self.selected_signals) == 1: # Ensure psd_axes is iterable even for one signal
             hist_axes = [hist_axes]
 
-        filename = self.file_path.get()
 
         # Define gaussian function for fitting
         def gaussian(x, mu, sigma, A, B):
@@ -963,7 +1002,7 @@ class DataAnalyzerApp(tk.Tk):
                     
                     ct = Constants()
                     hist_axes[i].annotate(f"Fit: A {A:.2f}, sigma {sigma:.2f} nm,\n mu {mu:.2f} nm, k_trap {ct.k_B * ct.T / (sigma)**2 * 1e24:.4f} pN/um",
-                        xy=(0.05, 0.55), xycoords='axes fraction')
+                        xy=(0.05, 0.55), xycoords='axes fraction', fontsize=self.an_font_size)
                 except Exception as e:
                     print(f"Gaussian fit failed for {signal_col}: {e}")
 
@@ -978,13 +1017,14 @@ class DataAnalyzerApp(tk.Tk):
                 hist_axes[i].set_title(f"Histogram Error for {signal_col}")
 
 
-        hist_fig.tight_layout()
+        #hist_fig.tight_layout()
         # FIX: Make PSD window non-modal so user can interact with main GUI
-        hist_fig.show() # Changed from plt.show() to plt.show(block=False)
+        hist_canvas.draw() # Changed from plt.show() to plt.show(block=False)
 
 
          # Create a new figure for log log PDF plots
-        hist_fig, hist_axes = plt.subplots(len(self.selected_signals), 1, figsize=(8, 3 * len(self.selected_signals)))
+        #hist_fig, hist_axes = plt.subplots(len(self.selected_signals), 1, figsize=(8, 3 * len(self.selected_signals)))
+        hist_fig, hist_axes, hist_canvas = self.create_plot_window(self, fig_title=f"PDF of {filename}", nrows=len(self.selected_signals), ncols=1, figsize=(8, 3 * len(self.selected_signals)))
         if len(self.selected_signals) == 1: # Ensure psd_axes is iterable even for one signal
             hist_axes = [hist_axes]
 
@@ -1016,7 +1056,7 @@ class DataAnalyzerApp(tk.Tk):
                     variance = np.var(signal_data)
                     stiffness = self.K_BOLTZMANN / variance
                     hist_axes[i].annotate(f"Variance: {variance:.2f} nm²\nk: {stiffness:.4f} pN/nm",
-                        xy=(0.05, 0.85), xycoords='axes fraction')
+                        xy=(0.05, 0.85), xycoords='axes fraction', fontsize=self.an_font_size)
                     
                 if i==0:
                     # Store for combined plots
@@ -1035,9 +1075,9 @@ class DataAnalyzerApp(tk.Tk):
             
 
 
-        hist_fig.tight_layout()
+        #hist_fig.tight_layout()
         # FIX: Make PSD window non-modal so user can interact with main GUI
-        hist_fig.show() # Changed from plt.show() to plt.show(block=False)
+        hist_canvas.draw() # Changed from plt.show() to plt.show(block=False)
 
     
     def plot_combined_pdf(self):
@@ -1052,7 +1092,8 @@ class DataAnalyzerApp(tk.Tk):
         
 
          # Create a new figure for log log PDF plots
-        hist_fig, hist_axes = plt.subplots(1, 1, figsize=(8, 3))
+        #hist_fig, hist_axes = plt.subplots(1, 1, figsize=(8, 3))
+        hist_fig, hist_axes, hist_canvas = self.create_plot_window(self, fig_title="Combined Log PDF", nrows=1, ncols=1, figsize=(8, 3))
         for data in self.data_list:
             hist_axes.plot(data["bins"], data["hist"], label=data["label"])
 
@@ -1065,8 +1106,8 @@ class DataAnalyzerApp(tk.Tk):
         #plt.savefig(os.path.join(output_dir, "combined_log_pdf.png"), dpi=300)
         #plt.close()
 
-        hist_fig.tight_layout()
-        hist_fig.show(block=False) # Changed from plt.show() to plt.show(block=False)
+        #hist_fig.tight_layout()
+        hist_canvas.draw() # Changed from plt.show() to plt.show(block=False)
 
     def save_selected_data(self):
         """Save the selected time window of the chosen signals to a CSV file."""
@@ -1181,7 +1222,8 @@ class DataAnalyzerApp(tk.Tk):
             return
 
         # Create a new figure for autocorrelation plots
-        acor_fig, acor_axes = plt.subplots(len(self.selected_signals), 1, figsize=(8, 3 * len(self.selected_signals)))
+        #acor_fig, acor_axes = plt.subplots(len(self.selected_signals), 1, figsize=(8, 3 * len(self.selected_signals)))
+        acor_fig, acor_axes, acor_canvas = self.create_plot_window(self, nrows=len(self.selected_signals), fig_title='Autocorrelation', ncols=1, figsize=(8, 3 * len(self.selected_signals)))
         if len(self.selected_signals) == 1: # Ensure acor_axes is iterable even for one signal
             acor_axes = [acor_axes]
 
@@ -1261,7 +1303,7 @@ class DataAnalyzerApp(tk.Tk):
             acor_axes[i].set_title(f"Autocorrelation of {signal_col}")
             acor_axes[i].set_xlabel("Lag")
             acor_axes[i].set_ylabel("Autocorrelation")
-            acor_axes[i].annotate(f"Thermal relaxation time {thermal_relaxation_time:.4f} s", xy=(0.05, 0.85), xycoords='axes fraction')
+            acor_axes[i].annotate(f"Thermal relaxation time {thermal_relaxation_time:.4f} s", xy=(0.05, 0.85), xycoords='axes fraction', fontsize=self.an_font_size)
             acor_axes[i].grid(True)
 
 
@@ -1269,7 +1311,7 @@ class DataAnalyzerApp(tk.Tk):
 
         acor_fig.tight_layout()
         self.plot_selected_signals() # Refresh main plot to ensure interactivity
-        acor_fig.show() # Changed from plt.show() to plt.show(block=False)
+        acor_canvas.draw() # Changed from plt.show() to plt.show(block=False)
 
     def start_profiling(self):
         """Start the cProfile profiler to analyze performance of the application."""

@@ -20,7 +20,8 @@ class DataAnalyzerFptWindow(tk.Toplevel):
         self.title("FPT Data Analyzer")
         self.geometry("1600x960")
         self.time_data = time_data
-        self.signal_data = signal_data
+        x0_as_avg = np.mean(signal_data)
+        self.signal_data = signal_data - x0_as_avg # we center the signal around 0, so that the setpoint is easier to interpret as a fraction of the standard deviation of the signal
         self.constants = constants
         self.create_widgets()
 
@@ -60,6 +61,7 @@ class DataAnalyzerFptWindow(tk.Toplevel):
 
         self.setpoint_var = tk.DoubleVar(value=0.5)
         self.setpoint_entry = ttk.Entry(user_parameter_frame, textvariable=self.setpoint_var)
+        self.setpoint_entry.bind('<Return>', self.update_setpoint_kbt)
         self.setpoint_entry.pack(side=tk.LEFT,fill=tk.X, padx=5, pady=5)
 
 
@@ -149,6 +151,15 @@ class DataAnalyzerFptWindow(tk.Toplevel):
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load data: {e}")
 
+    def update_setpoint_kbt(self:Self, event)->None:
+        try:
+            setpoint_kbt = self.setpoint_var.get()
+            if setpoint_kbt <= 0:
+                raise ValueError("Setpoint must be a positive value.")
+            self.update_plot(self.time_data, self.signal_data, title="Preprocessed Signal")
+        except Exception as e:
+            messagebox.showerror("Invalid Input", f"Please enter a valid positive number for the setpoint: {e}", parent=self)
+
     def on_signal_select(self:Self, event)->None:
         selection = self.signal_listbox.curselection()
         if selection:
@@ -173,8 +184,11 @@ class DataAnalyzerFptWindow(tk.Toplevel):
 
 
     def convert_setpoint_from_kBT_to_adimensionalDistane(self:Self, x:np.ndarray, kBT_value:float)->float:
-        # Assuming kBT_value is a fraction of kBT, the corresponding x is calculated as E = 1/2 * k_trap * x^2 => x = sqrt(2 * E / k_trap) => x = sqrt(2 * (kBT_value * k_B * T) / k_trap)
+        # Assuming kBT_value is a fraction of kBT, the corresponding x is calculated as E = 1/2 * k_trap * x^2 => x = sqrt(2 * E / k_trap) => x = sqrt(2 * (kBT_value * k_B * T) / k_trap) in m
         setpoint_value = np.sqrt((2 * kBT_value * self.constants.k_B * self.constants.T) / self.constants.k_trap)
+
+        # supposedly our x signal is in nm (if resulting from callibration with correnct factor), so we convert the setpoint value to nm as well
+        setpoint_value *= 1e9
 
         return setpoint_value
     
@@ -185,13 +199,32 @@ class DataAnalyzerFptWindow(tk.Toplevel):
     
 
     def plot_data(self:Self, x_data:np.ndarray, y_data:np.ndarray, title:str="Signal Plot", xlabel:str="Time", ylabel:str="Signal Value")->None:
+        sigma, tau, perr, y_fit = self.fit_data_with_erfc(x_data, y_data, self.convert_setpoint_from_kBT_to_adimensionalDistane(y_data, self.setpoint_var.get()))
         self.ax.clear()
-        self.ax.plot(x_data, y_data, label=title)
+        self.ax.semilogx(x_data, y_data, label=title)
+        self.ax.semilogx(x_data, y_fit, label=f"Fitted erfc (sigma={sigma:.2f}±{perr[0]:.2f}, tau={tau:.2f}±{perr[1]:.2f})", linestyle='--')
         self.ax.set_title(title)
         self.ax.set_xlabel(xlabel)
         self.ax.set_ylabel(ylabel)
         self.ax.legend()
         self.canvas.draw()
+
+    def fit_data_with_erfc(self:Self, x_data:np.ndarray, y_data:np.ndarray, setpoint_value:float)->Tuple[float, float, float, np.ndarray]:
+        from scipy.special import erfc
+        from scipy.optimize import curve_fit
+
+        def erfc_func(x,a, b):
+            #return a * erfc(setpoint_value/(2*sigma*(np.sqrt(np.exp(2*(x-x0)/tau)-1))))
+            return erfc(a*np.sqrt(np.exp(x/b)-1))
+        
+        #p0=[np.std(y_data), 0.001, 0.1, 0.5]
+        p0 = [0.001, 13] # Initial guess for sigma and tau
+
+        popt, pcov = curve_fit(erfc_func, x_data[1:], y_data[1:], p0=p0)  # Initial guess for sigma and tau
+        perr = np.sqrt(np.diag(pcov)) # standard deviation errors of the parameters
+        y_fit = erfc_func(x_data, *popt)
+        #y_fit = erfc_func(x_data, p0[0], p0[1], p0[2], p0[3]) # we plot the fit with the initial parameters, because the fitting is not working well and we want to see how it looks with the initial guess
+        return popt[0], popt[1], perr, y_fit  # Return the fitted parameters sigma and tau
 
     @staticmethod
     def FPT_CDF_fromData(x, t, setpoint0, setpoint1 = 0, bins = 100):
