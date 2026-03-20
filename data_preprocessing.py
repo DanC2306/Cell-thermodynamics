@@ -87,8 +87,10 @@ class Constants:
     eta = 0.001         # Pa·s (water)
     R = 1.5e-6          # m (bead radius)
     gamma = 6 * np.pi * eta * R
-
-    def __init__(self:Self, fc=50.0, A=1.0):
+    def __init__(self):
+        self.set_fc_and_A()
+        self.relaxation_time = -1
+    def set_fc_and_A(self:Self, fc=50.0, A=1.0):
         # === Compute stiffness ===
         self.k_trap = 2 * np.pi * self.gamma * fc  # [N/m]
 
@@ -473,7 +475,7 @@ class DataAnalyzerApp(tk.Tk):
             # Update selected_signals based on initial selection
             # Directly update self.selected_signals and call plot_selected_signals
             if self.signal_columns: # Ensure there are columns to select
-                self.selected_signals = [self.signal_columns[0]] # Select only the first signal
+                self.selected_signals = [self.signal_columns[2]] # Select only the first signal
             else:
                 self.selected_signals = []
 
@@ -894,6 +896,9 @@ class DataAnalyzerApp(tk.Tk):
             # fs: sampling frequency
             try:
                 freqs, psd = welch(signal_data, fs=sampling_freq, nperseg=4096) # Increased nperseg for better resolution
+                # freqs = np.fft.rfftfreq(len(signal_data), d=1/sampling_freq)
+                # fft = np.fft.rfft(signal_data - np.mean(signal_data))
+                # psd = (np.abs(fft) ** 2) / (sampling_freq * len(signal_data))
                 # FIX: Use loglog for both axes logarithmic scale
                 psd_axes[i].loglog(freqs, psd, label="PSD data") # Changed from semilogy to loglog
                 psd_axes[i].set_title(f"PSD of {signal_col}")
@@ -904,15 +909,14 @@ class DataAnalyzerApp(tk.Tk):
                 # Lorenzian fit initial parameter guesses: [amplitude, center, fwhm]
                 p0 = [0.8, 5.2]#, 50.0] # Amplitude, Center frequency, FWHM
                 popt, pcov = curve_fit(lorentzian2, freqs, psd, p0=p0, check_finite=True, method='lm')
-                popt[1] = abs(popt[1]) # Ensure center frequency is positive
+                popt[1] = abs(popt[1]) # Ensure center frequency is positive 
                 fitted_psd = lorentzian2(freqs, *popt)
                 psd_axes[i].loglog(freqs, fitted_psd, 'r--', label='Lorentzian Fit')
                 psd_axes[i].legend()
                 #psd_axes[i].annotate(f"Fit: A={popt[0]:.2e}, f0={popt[1]:.2f} Hz, FWHM={popt[2]:.2f} Hz",
                 #    xy=(0.05, 0.85), xycoords='axes fraction')
-
-                thermal_parameters = Constants(fc=popt[1], A=popt[0])
-                self.constants = thermal_parameters # Store for later use in FPT window
+                thermal_parameters = self.constants
+                thermal_parameters.set_fc_and_A(fc=popt[1], A=popt[0]) # Store for later use in FPT window
 
                 psd_axes[i].annotate(f"Fit: A={popt[0]:.2e}, fc={popt[1]:.2f} Hz, fit R²={lorentzian_goodness_of_fit(freqs, psd, *popt):.4f}\nCalibration factor: {thermal_parameters.calib_nm_per_V:0.3f} nm/V\n Stiffness: {thermal_parameters.k_trap * 1e6:0.4f} pN/um",
                     xy=(0.05, 0.05), xycoords='axes fraction', fontsize=self.an_font_size)
@@ -1012,7 +1016,7 @@ class DataAnalyzerApp(tk.Tk):
                     """ hist_axes[i].annotate(f"Fit: {A:.2f} / (2 pi {sigma:.2f}) exp(-(x - {mu:.2f} /{sigma:.2f})**2/2) + {B:.2f}",
                         xy=(0.05, 0.05), xycoords='axes fraction') """
                     
-                    ct = Constants()
+                    ct = self.constants
                     hist_axes[i].annotate(f"Fit: A {A:.2f}, sigma {sigma:.2f} nm,\n mu {mu:.2f} nm, k_trap {ct.k_B * ct.T / (sigma)**2 * 1e24:.4f} pN/um",
                         xy=(0.05, 0.55), xycoords='axes fraction', fontsize=self.an_font_size)
                 except Exception as e:
@@ -1291,7 +1295,7 @@ class DataAnalyzerApp(tk.Tk):
             small_lag_points = total_points
             ts = np.arange(total_points) *  dt # time lags based on original sampling rate
             thermal_relaxation_time = np.mean(relaxation_time) #first mode of compute relaxation time
-
+            self.constants.relaxation_time = thermal_relaxation_time
             #second mode: fitting exponential decay
             try:   
                 """ popt, pcov = curve_fit(exponential_decay, ts, acor, p0=[thermal_relaxation_time, 0.0])
@@ -1306,6 +1310,7 @@ class DataAnalyzerApp(tk.Tk):
                 #plot the small lag fit and annotate new parameters
                 acor_axes[i].plot(ts[:small_lag_points], fitted_acor, 'r--', label='Exp Fit (small lag)')
                 thermal_relaxation_time_by_fit = popt[0]
+                
                 ct = self.constants
                 acor_axes[i].annotate(f"Relaxation time {thermal_relaxation_time_by_fit:.4f} s, stiffness {ct.gamma / (thermal_relaxation_time_by_fit) * 1e6:.4f} pN/um", xy=(0.05, 0.45), xycoords='axes fraction') 
             except Exception as e:

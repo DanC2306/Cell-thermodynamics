@@ -181,7 +181,7 @@ class DataAnalyzerFptWindow(tk.Toplevel):
         setpoint_value = self.convert_setpoint_from_kBT_to_adimensionalDistane(signal_data, self.setpoint_var.get())
 
         fpt_values, cdf_values = self.FPT_CDF_fromData(signal_data, time_data, setpoint_value)
-
+        self.x0 = setpoint_value
         self.plot_data(fpt_values, cdf_values, title=title, xlabel="First Passage Time (s)", ylabel="CDF")
 
 
@@ -210,8 +210,16 @@ class DataAnalyzerFptWindow(tk.Toplevel):
             (a, b), _ = curve_fit(erfc_model, x_data, y_data, p0=[13, 2 / 0.001], maxfev=5000)
             fitted_curve = erfc_model(x_data, a, b)
             tau_r = 2 / b
+            sigma_x = self.x0 / 2 / a
 
-            self.ax.plot(x_data, fitted_curve, '--', label='Fitted curve')
+            self.ax.plot(x_data, fitted_curve, '--', label=f'Fitted curve: tau_r {tau_r : .2f}, sigma_x {sigma_x : .2f}')
+            if not (self.constants.relaxation_time == -1):
+                tau_r = self.constants.relaxation_time
+                sigma_x = np.std(self.signal_data)
+                a = self.x0 / 2 / sigma_x
+                b = 2 / tau_r
+                expected_curve = erfc_model(x_data, a, b)
+                self.ax.plot(x_data, expected_curve, '--', label=f'Expected curve {tau_r : .2f}, sigma_x {sigma_x : .2f}')
         except Exception as e:
             print(f"Fitting failed: {e}")
         self.ax.set_title(title)
