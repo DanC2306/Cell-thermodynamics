@@ -206,6 +206,16 @@ class DataAnalyzerFptWindow(tk.Toplevel):
         self.ax.plot(x_data, y_data, label=title)
         def erfc_model(tau, a, b):
             return special.erfc(a * np.sqrt(1 / (np.exp(b * tau) - 1)))
+        
+        def erfc_goodness_of_fit(x, y, a, b):
+            """Calculate R-squared for the erfc fit."""
+            fitted_y = erfc_model(x, a, b)
+            residuals = y - fitted_y
+            ss_res = np.sum(residuals**2)
+            ss_tot = np.sum((y - np.mean(y))**2)
+            r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+            return r_squared
+
         try:
             (a, b), _ = curve_fit(erfc_model, x_data, y_data, p0=[13, 2 / 0.001], maxfev=5000)
             fitted_curve = erfc_model(x_data, a, b)
@@ -220,6 +230,8 @@ class DataAnalyzerFptWindow(tk.Toplevel):
                 b = 2 / tau_r
                 expected_curve = erfc_model(x_data, a, b)
                 self.ax.plot(x_data, expected_curve, '--', label=f'Expected curve {tau_r : .2f}, sigma_x {sigma_x : .2f}')
+                self.ax.annotate(f"Fit R²={erfc_goodness_of_fit(x_data, y_data, a, b):.4f}",
+                    xy=(0.75, 0.05), xycoords='axes fraction')
         except Exception as e:
             print(f"Fitting failed: {e}")
         self.ax.set_title(title)
