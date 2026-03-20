@@ -207,7 +207,7 @@ class DataAnalyzerFptWindow(tk.Toplevel):
         def erfc_model(tau, a, b):
             return special.erfc(a * np.sqrt(1 / (np.exp(b * tau) - 1)))
         try:
-            (a, b), _ = curve_fit(erfc_model, x_data, y_data, p0=[1, 1], maxfev=5000)
+            (a, b), _ = curve_fit(erfc_model, x_data, y_data, p0=[13, 2 / 0.001], maxfev=5000)
             fitted_curve = erfc_model(x_data, a, b)
             tau_r = 2 / b
 
